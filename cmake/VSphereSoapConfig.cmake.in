@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright © 2026 Norvitex OÜ
+#
+# find_package(VSphereSoap) entry point: the static library and the dependencies its link interface names.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+find_dependency(OpenSSL)
+find_dependency(ZLIB)
+find_dependency(pugixml)
+
+include("${CMAKE_CURRENT_LIST_DIR}/VSphereSoapTargets.cmake")
+check_required_components(VSphereSoap)
