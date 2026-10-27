@@ -257,7 +257,7 @@ Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, c
                                  attached.value().unitNumber};
 }
 
-Result<void> cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
+Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
                                       const std::string& descriptorDatastorePath)
 {
     const Detail::VmLocator targetLocator = toInternalLocator(targetVm);
@@ -295,14 +295,14 @@ Result<void> cleanupFolderPutImport(const ConnectParams& params, const VmLocator
     // Best-effort for both files: a delete failing here (e.g. the flat extent's PUT never got far enough
     // to create it at all) is logged, not propagated; there is already a more important upload failure
     // being reported by the caller.
-    if (auto deletedFlat = Detail::deleteDatastoreFile(*session, flatDatastorePath, datacenter); !deletedFlat) {
+    if (auto deletedFlat = Detail::deleteDatastoreFile(*session, flatDatastorePath, datacenter); !deletedFlat.ok()) {
         logger()->warn("cleanup: failed to delete flat extent {} after a failed folder-put upload: {}",
-                        flatDatastorePath, deletedFlat.error().toString());
+                        flatDatastorePath, deletedFlat.toString());
     }
     if (auto deletedDescriptor = Detail::deleteDatastoreFile(*session, descriptorDatastorePath, datacenter);
-        !deletedDescriptor) {
+        !deletedDescriptor.ok()) {
         logger()->warn("cleanup: failed to delete descriptor {} after a failed folder-put upload: {}",
-                        descriptorDatastorePath, deletedDescriptor.error().toString());
+                        descriptorDatastorePath, deletedDescriptor.toString());
     }
     return {};
 }

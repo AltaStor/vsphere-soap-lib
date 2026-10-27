@@ -121,7 +121,7 @@ public:
     /// Connects, logs in, builds an OVF descriptor for `spec`, and drives `CreateImportSpec` +
     /// `ImportVApp` through to a ready lease: see `HttpNfcLeaseSession::begin()`'s doc comment for
     /// the exact failure modes and abort-on-failure behavior, which this forwards.
-    [[nodiscard]] static VSphereSoap::Result<std::unique_ptr<VSphereImportSession>>
+    static VSphereSoap::Result<std::unique_ptr<VSphereImportSession>>
     begin(const ConnectParams& params, const VSphereImportVmSpec& spec);
 
     /// Aborts the lease (best-effort) if `complete()` was never called successfully, then logs out: see
@@ -142,7 +142,7 @@ public:
     void stopKeepAlive();
 
     /// See `HttpNfcLeaseSession::complete()`: forwarded verbatim.
-    [[nodiscard]] VSphereSoap::Result<void> complete();
+    VSphereSoap::Error complete();
 
     /// `Destroy_Task` on the placeholder VM, unlike `UnregisterVM` (used on the success path, after
     /// the disk has already been moved out into the target VM's own folder), this also deletes its files
@@ -153,7 +153,7 @@ public:
     /// Idempotent is not guaranteed if called twice; callers own calling this at most once, on the one
     /// failure/cancellation path that needs it.
     ///
-    [[nodiscard]] VSphereSoap::Result<void> destroyPlaceholderVm();
+    VSphereSoap::Error destroyPlaceholderVm();
 
 private:
     class Impl;

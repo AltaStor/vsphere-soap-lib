@@ -261,10 +261,11 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     //
     const std::string snapshotName =
         params.cbtSnapshotName.empty() ? std::string(Detail::kDefaultCbtBaselineSnapshotName) : params.cbtSnapshotName;
-    if (auto cleanup = Detail::SnapshotScope::removeIfExists(*impl->m_session, impl->m_vm, snapshotName); !cleanup) {
+    if (auto cleanup = Detail::SnapshotScope::removeIfExists(*impl->m_session, impl->m_vm, snapshotName);
+        !cleanup.ok()) {
         logger()->warn("stale-snapshot cleanup for {} {} failed: {} -- proceeding anyway; disk reads may target "
                         "a leftover snapshot's delta file if one is still present",
-                        impl->m_vm.type, impl->m_vm.value, cleanup.error().toString());
+                        impl->m_vm.type, impl->m_vm.value, cleanup.toString());
     }
 
     auto vmInfoResult = inventory.describeVm(impl->m_vm);
@@ -312,8 +313,8 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     if (params.useCbt) {
         Detail::CbtQuery cbt(*impl->m_session);
         auto eligibleResult = cbt.checkEligible(vmInfo, impl->m_disk);
-        if (!eligibleResult) {
-            impl->m_cbtUnavailableReason = eligibleResult.error().message();
+        if (!eligibleResult.ok()) {
+            impl->m_cbtUnavailableReason = eligibleResult.message();
         } else {
             auto snapshotResult =
                 Detail::SnapshotScope::create(*impl->m_session, impl->m_vm, snapshotName, /*quiesce=*/false);
@@ -421,7 +422,7 @@ Result<std::uint64_t> VmwareSoapDisk::writeAt(std::uint64_t /*offset*/, std::spa
 std::uint64_t VmwareSoapDisk::virtualSize() const noexcept { return m_impl->m_virtualSizeBytes; }
 std::uint64_t VmwareSoapDisk::sectorSize() const noexcept { return kSectorSizeBytes; }
 
-Result<void> VmwareSoapDisk::flush() { return {}; }
+Error VmwareSoapDisk::flush() { return {}; }
 
 Result<bool> VmwareSoapDisk::isZero(std::uint64_t offset, std::uint64_t length)
 {

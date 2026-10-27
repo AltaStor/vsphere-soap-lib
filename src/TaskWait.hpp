@@ -24,6 +24,6 @@ using VSphereSoap::Result;
 /// Fails with `ErrorCode::IoError` on "error" (message taken from `info.error.localizedMessage`) or if
 /// the task hasn't finished after 10 minutes.
 ///
-[[nodiscard]] Result<MoRef> waitForVimTask(VimSession& session, const MoRef& task);
+Result<MoRef> waitForVimTask(VimSession& session, const MoRef& task);
 
 } // namespace VSphereSoap::Detail

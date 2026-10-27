@@ -129,9 +129,9 @@ public:
     //
     std::vector<std::pair<std::uint64_t, std::uint64_t>> m_grainIndexToMarkerSector;
 
-    Result<void> writeRaw(std::span<const std::byte> bytes)
+    Error writeRaw(std::span<const std::byte> bytes)
     {
-        if (auto result = m_sink(bytes); !result) {
+        if (auto result = m_sink(bytes); !result.ok()) {
             return result;
         }
         return {};
@@ -140,13 +140,13 @@ public:
     // Pads `bytes` (already written to a temp buffer by the caller) up to the next sector boundary and
     // writes the whole padded buffer, keeping cursorSectors in sync.
     // `bytes.size()` need not itself be sector-aligned; only the total written-to-sink length is.
-    Result<void> writePadded(std::vector<std::byte> bytes)
+    Error writePadded(std::vector<std::byte> bytes)
     {
         const std::uint64_t rem = bytes.size() % kSectorSizeBytes;
         if (rem != 0) {
             bytes.resize(bytes.size() + (kSectorSizeBytes - rem), std::byte{0});
         }
-        if (auto result = writeRaw(bytes); !result) {
+        if (auto result = writeRaw(bytes); !result.ok()) {
             return result;
         }
         m_cursorSectors += bytes.size() / kSectorSizeBytes;
@@ -172,19 +172,19 @@ public:
         std::vector<std::byte> headerBuf(sizeof(marker) + sizeof(SpecialMarkerType));
         std::memcpy(headerBuf.data(), &marker, sizeof(marker));
         std::memcpy(headerBuf.data() + sizeof(marker), &type, sizeof(type));
-        if (auto result = writePadded(std::move(headerBuf)); !result) {
-            return std::move(result).error();
+        if (auto result = writePadded(std::move(headerBuf)); !result.ok()) {
+            return result;
         }
         if (!payload.empty()) {
             std::vector<std::byte> payloadBuf(payload.begin(), payload.end());
-            if (auto result = writePadded(std::move(payloadBuf)); !result) {
-                return std::move(result).error();
+            if (auto result = writePadded(std::move(payloadBuf)); !result.ok()) {
+                return result;
             }
         }
         return markerSector;
     }
 
-    Result<void> writeHeader(std::uint64_t gdOffsetSectors)
+    Error writeHeader(std::uint64_t gdOffsetSectors)
     {
         SparseExtentHeaderOnDisk header;
         header.flags = kFlagValidNewLineTest | kFlagHasMarkers | (m_compressGrains ? kFlagCompressedGrains : 0);
@@ -239,14 +239,14 @@ Result<StreamOptimizedVmdkEncoder> StreamOptimizedVmdkEncoder::create(VmdkByteSi
     // the footer instead" sentinel).
     impl->m_overHeadSectors = 1 + impl->m_descriptorSectors;
 
-    if (auto result = impl->writeHeader(kSparseGdAtEnd); !result) {
-        return std::move(result).error();
+    if (auto result = impl->writeHeader(kSparseGdAtEnd); !result.ok()) {
+        return result;
     }
     // Descriptor bytes right after the header, padded to a full sector.
     std::vector<std::byte> descBuf(impl->m_descriptor.size());
     std::memcpy(descBuf.data(), impl->m_descriptor.data(), impl->m_descriptor.size());
-    if (auto result = impl->writePadded(std::move(descBuf)); !result) {
-        return std::move(result).error();
+    if (auto result = impl->writePadded(std::move(descBuf)); !result.ok()) {
+        return result;
     }
 
     return StreamOptimizedVmdkEncoder(std::move(impl));
@@ -257,7 +257,7 @@ StreamOptimizedVmdkEncoder::StreamOptimizedVmdkEncoder(StreamOptimizedVmdkEncode
 StreamOptimizedVmdkEncoder& StreamOptimizedVmdkEncoder::operator=(StreamOptimizedVmdkEncoder&&) noexcept = default;
 StreamOptimizedVmdkEncoder::~StreamOptimizedVmdkEncoder() = default;
 
-Result<void> StreamOptimizedVmdkEncoder::writeGrain(const VmdkGrain& grain)
+Error StreamOptimizedVmdkEncoder::writeGrain(const VmdkGrain& grain)
 {
     if (m_impl->m_finished) {
         return Error(ErrorCode::InvalidArgument, "StreamOptimizedVmdkEncoder::writeGrain called after finish()");
@@ -306,7 +306,7 @@ Result<void> StreamOptimizedVmdkEncoder::writeGrain(const VmdkGrain& grain)
     std::vector<std::byte> buf(sizeof(markerHeader) + emitted.size());
     std::memcpy(buf.data(), &markerHeader, sizeof(markerHeader));
     std::memcpy(buf.data() + sizeof(markerHeader), emitted.data(), emitted.size());
-    if (auto result = m_impl->writePadded(std::move(buf)); !result) {
+    if (auto result = m_impl->writePadded(std::move(buf)); !result.ok()) {
         return result;
     }
 
@@ -316,7 +316,7 @@ Result<void> StreamOptimizedVmdkEncoder::writeGrain(const VmdkGrain& grain)
     return {};
 }
 
-Result<void> StreamOptimizedVmdkEncoder::finish()
+Error StreamOptimizedVmdkEncoder::finish()
 {
     if (m_impl->m_finished) {
         return Error(ErrorCode::InvalidArgument, "StreamOptimizedVmdkEncoder::finish called twice");
@@ -375,7 +375,7 @@ Result<void> StreamOptimizedVmdkEncoder::finish()
     if (auto result = m_impl->writeSpecialMarker(1, SpecialMarkerType::Footer, {}); !result) {
         return std::move(result).error();
     }
-    if (auto result = m_impl->writeHeader(gdMarkerSector.value() + 1); !result) {
+    if (auto result = m_impl->writeHeader(gdMarkerSector.value() + 1); !result.ok()) {
         return result;
     }
 
@@ -391,7 +391,7 @@ Result<std::uint64_t> StreamOptimizedVmdkEncoder::computeDenseStreamSizeBytes(st
                                                                                   std::uint64_t grainSizeSectors)
 {
     std::uint64_t total = 0;
-    VmdkByteSink countingSink = [&total](std::span<const std::byte> bytes) -> Result<void> {
+    VmdkByteSink countingSink = [&total](std::span<const std::byte> bytes) -> Error {
         total += bytes.size();
         return {};
     };
@@ -404,12 +404,12 @@ Result<std::uint64_t> StreamOptimizedVmdkEncoder::computeDenseStreamSizeBytes(st
     const std::uint64_t grainSizeBytes = grainSizeSectors * kSectorSizeBytes;
     const std::vector<std::byte> zeroGrain(grainSizeBytes, std::byte{0});
     for (std::uint64_t offset = 0; offset < capacityBytes; offset += grainSizeBytes) {
-        if (auto result = encoder.writeGrain(VmdkGrain{offset, zeroGrain}); !result) {
-            return std::move(result).error();
+        if (auto result = encoder.writeGrain(VmdkGrain{offset, zeroGrain}); !result.ok()) {
+            return result;
         }
     }
-    if (auto result = encoder.finish(); !result) {
-        return std::move(result).error();
+    if (auto result = encoder.finish(); !result.ok()) {
+        return result;
     }
     return total;
 }

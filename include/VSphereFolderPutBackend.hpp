@@ -82,7 +82,7 @@ public:
     /// Parses `params.putUrl`'s host/port, opens a dedicated HTTPS connection (not shared with any other
     /// transport), and starts the background upload thread immediately (it begins waiting for the first
     /// bytes right away, matching `VSphereDatastoreBackend::open`'s own reasoning for doing so).
-    [[nodiscard]] static VSphereSoap::Result<std::unique_ptr<VSphereFolderPutBackend>>
+    static VSphereSoap::Result<std::unique_ptr<VSphereFolderPutBackend>>
     open(VSphereFolderPutBackendParams params);
 
     /// Aborts the upload (best-effort) if `flush()` was never called or failed, then joins
@@ -105,7 +105,7 @@ public:
     /// Zero-fills any remaining tail, signals end-of-body, joins the upload thread, and fails if
     /// the datastore's HTTP response wasn't 2xx.
     /// Idempotent.
-    VSphereSoap::Result<void> flush() override;
+    VSphereSoap::Error flush() override;
 
 private:
     class Impl;

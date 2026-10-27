@@ -39,7 +39,7 @@ public:
     /// `describeVm()`, per `VmwareSoapDisk::open()`'s existing call order), the stale path is already
     /// captured and removing the snapshot no longer helps that call's own read target.
     ///
-    [[nodiscard]] static Result<void> removeIfExists(VimSession& session, const MoRef& vm, std::string name);
+    static Error removeIfExists(VimSession& session, const MoRef& vm, std::string name);
 
     /// Calls `removeIfExists` first (see above: belt-and-suspenders for any caller that doesn't already
     /// do this ahead of its own disk-info read), then `CreateSnapshot_Task` and waits for it to finish.
@@ -51,7 +51,7 @@ public:
     /// Fails with `ErrorCode::IoError` if the task faults or times out, `ErrorCode::InvalidFormat` if it
     /// succeeds without a snapshot result.
     ///
-    [[nodiscard]] static Result<std::unique_ptr<SnapshotScope>> create(VimSession& session, const MoRef& vm,
+    static Result<std::unique_ptr<SnapshotScope>> create(VimSession& session, const MoRef& vm,
                                                                           std::string name, bool quiesce = false);
 
     /// Calls `RemoveSnapshot_Task` and waits for it, best-effort: any failure is swallowed (never

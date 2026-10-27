@@ -143,7 +143,7 @@ asio::ssl::context makeSslContext(bool verifyChain)
 // left to a library's own synchronous wrapper); and returns a timeout error.
 //
 template <typename Stream, typename Starter>
-Result<void> runWithTimeout(asio::io_context& ioc, Stream& stream, std::chrono::seconds timeout,
+Error runWithTimeout(asio::io_context& ioc, Stream& stream, std::chrono::seconds timeout,
                              std::string_view opLabel, Starter&& starter)
 {
     const auto start = Clock::now();
@@ -253,17 +253,17 @@ Result<std::unique_ptr<HttpsRestClient::Connection>> HttpsRestClient::connect() 
                     .async_connect(endpoints, [handler = std::move(handler)](
                                                    const beast::error_code& ec, const tcp::endpoint&) { handler(ec); });
             });
-            !result) {
-            httpLogger()->warn("TCP connect to {}:{} failed: {}", m_host, m_port, result.error().toString());
-            return makeIoError(m_host, 0, "connect: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("TCP connect to {}:{} failed: {}", m_host, m_port, result.toString());
+            return makeIoError(m_host, 0, "connect: " + result.toString());
         }
 
         if (auto result = runWithTimeout(conn->ioc, conn->stream, kConnectTimeout, "TLS handshake", [&](auto handler) {
                 conn->stream.async_handshake(asio::ssl::stream_base::client, std::move(handler));
             });
-            !result) {
-            httpLogger()->warn("TLS handshake with {}:{} failed: {}", m_host, m_port, result.error().toString());
-            return makeIoError(m_host, 0, "TLS handshake: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("TLS handshake with {}:{} failed: {}", m_host, m_port, result.toString());
+            return makeIoError(m_host, 0, "TLS handshake: " + result.toString());
         }
 
         if (!m_pinnedThumbprint.empty()) {
@@ -311,9 +311,9 @@ Result<HttpResponse> HttpsRestClient::requestOnce(Connection& conn, HttpMethod m
                 http::async_write(conn.stream, *req, [req, handler = std::move(handler)](
                                                           const beast::error_code& ec, std::size_t) { handler(ec); });
             });
-            !result) {
-            httpLogger()->warn("HTTPS write to {}{} failed: {}", m_host, target, result.error().toString());
-            return makeIoError(m_host, 0, "HTTPS write: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("HTTPS write to {}{} failed: {}", m_host, target, result.toString());
+            return makeIoError(m_host, 0, "HTTPS write: " + result.toString());
         }
 
         // A plain http::response<string_body> read via the free async_read overload is stuck with
@@ -332,9 +332,9 @@ Result<HttpResponse> HttpsRestClient::requestOnce(Connection& conn, HttpMethod m
                                   [buffer, parser, handler = std::move(handler)](const beast::error_code& ec,
                                                                                   std::size_t) { handler(ec); });
             });
-            !result) {
-            httpLogger()->warn("HTTPS read from {}{} failed: {}", m_host, target, result.error().toString());
-            return makeIoError(m_host, 0, "HTTPS read: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("HTTPS read from {}{} failed: {}", m_host, target, result.toString());
+            return makeIoError(m_host, 0, "HTTPS read: " + result.toString());
         }
 
         // Deliberately no stream shutdown here; see the class doc comment: this connection stays open
@@ -416,9 +416,9 @@ Result<HttpResponse> HttpsRestClient::requestOnceFile(Connection& conn, const st
                 http::async_write(conn.stream, *req, [req, handler = std::move(handler)](
                                                           const beast::error_code& ec, std::size_t) { handler(ec); });
             });
-            !result) {
-            httpLogger()->warn("HTTPS file PUT write to {}{} failed: {}", m_host, target, result.error().toString());
-            return makeIoError(m_host, 0, "HTTPS write: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("HTTPS file PUT write to {}{} failed: {}", m_host, target, result.toString());
+            return makeIoError(m_host, 0, "HTTPS write: " + result.toString());
         }
 
         auto buffer = std::make_shared<beast::flat_buffer>();
@@ -430,9 +430,9 @@ Result<HttpResponse> HttpsRestClient::requestOnceFile(Connection& conn, const st
                                   [buffer, parser, handler = std::move(handler)](const beast::error_code& ec,
                                                                                   std::size_t) { handler(ec); });
             });
-            !result) {
-            httpLogger()->warn("HTTPS file PUT read from {}{} failed: {}", m_host, target, result.error().toString());
-            return makeIoError(m_host, 0, "HTTPS read: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("HTTPS file PUT read from {}{} failed: {}", m_host, target, result.toString());
+            return makeIoError(m_host, 0, "HTTPS read: " + result.toString());
         }
 
         // Deliberately no stream shutdown here; see the class doc comment: this connection stays open
@@ -549,11 +549,11 @@ Result<HttpResponse> HttpsRestClient::requestOnceStream(Connection& conn, HttpMe
                                                     handler(ec);
                                                 });
                     });
-                !result) {
+                !result.ok()) {
                 // A real transport-level failure (not need_buffer, which never reaches here since it's
                 // translated to success above).
-                httpLogger()->warn("HTTPS streamed {} write to {}{} failed: {}", methodName(method), m_host, target, result.error().toString());
-                return makeIoError(m_host, 0, "HTTPS write: " + result.error().toString());
+                httpLogger()->warn("HTTPS streamed {} write to {}{} failed: {}", methodName(method), m_host, target, result.toString());
+                return makeIoError(m_host, 0, "HTTPS write: " + result.toString());
             }
         }
 
@@ -565,9 +565,9 @@ Result<HttpResponse> HttpsRestClient::requestOnceStream(Connection& conn, HttpMe
                                   [buffer, parser, handler = std::move(handler)](const beast::error_code& ec,
                                                                                   std::size_t) { handler(ec); });
             });
-            !result) {
-            httpLogger()->warn("HTTPS streamed {} read from {}{} failed: {}", methodName(method), m_host, target, result.error().toString());
-            return makeIoError(m_host, 0, "HTTPS read: " + result.error().toString());
+            !result.ok()) {
+            httpLogger()->warn("HTTPS streamed {} read from {}{} failed: {}", methodName(method), m_host, target, result.toString());
+            return makeIoError(m_host, 0, "HTTPS read: " + result.toString());
         }
 
         // Deliberately no stream shutdown here; see the class doc comment: this connection stays open

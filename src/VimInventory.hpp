@@ -188,7 +188,7 @@ public:
     /// Fails with `ErrorCode::InvalidArgument` if no object matches, or if `locator` has none of its
     /// members set.
     ///
-    [[nodiscard]] Result<MoRef> findVm(const VmLocator& locator);
+    Result<MoRef> findVm(const VmLocator& locator);
 
     /// One `RetrievePropertiesEx` call (looping on `token` continuation via
     /// `ContinueRetrievePropertiesEx` until a page comes back without one) gathering everything
@@ -196,7 +196,7 @@ public:
     /// Fails with `ErrorCode::InvalidArgument` if `vm` doesn't exist, `ErrorCode::InvalidFormat` on
     /// an unexpected response shape.
     ///
-    [[nodiscard]] Result<VimVmInfo> describeVm(const MoRef& vm);
+    Result<VimVmInfo> describeVm(const MoRef& vm);
 
     /// Walks `parent` upward from `entity` (polymorphically, via the `ManagedEntity` base type's
     /// `name`/`parent` properties) until reaching a `Datacenter`, returning its name: the `dcPath`
@@ -206,14 +206,14 @@ public:
     /// number of hops (guards against an inventory traversal bug looping forever, not a real inventory
     /// shape).
     ///
-    [[nodiscard]] Result<std::string> resolveDatacenterName(const MoRef& entity);
+    Result<std::string> resolveDatacenterName(const MoRef& entity);
 
     /// Same upward walk as `resolveDatacenterName`, returning the `Datacenter`'s own MoRef instead of
     /// its name: needed by `MoveDatastoreFile_Task`'s `sourceDatacenter`/`destinationDatacenter`
     /// parameters, which take a MoRef, not a name.
     /// Same failure modes.
     ///
-    [[nodiscard]] Result<MoRef> resolveDatacenterMoRef(const MoRef& entity);
+    Result<MoRef> resolveDatacenterMoRef(const MoRef& entity);
 
     /// Every object of managed type `type` (subtypes included, e.g. "Network" also yields
     /// DistributedVirtualPortgroup/OpaqueNetwork; `VimObjectProperties::moref.type` says which) anywhere
@@ -223,7 +223,7 @@ public:
     /// Fails with `ErrorCode::InvalidFormat` if the server has no ViewManager or answers with
     /// an unexpected shape.
     ///
-    [[nodiscard]] Result<std::vector<VimObjectProperties>> listObjects(const std::string& type,
+    Result<std::vector<VimObjectProperties>> listObjects(const std::string& type,
                                                                           const std::vector<std::string>& pathSet);
 
 private:

@@ -36,7 +36,7 @@ class CollectingSink {
 public:
     VmdkByteSink asSink()
     {
-        return [this](std::span<const std::byte> bytes) -> Result<void> {
+        return [this](std::span<const std::byte> bytes) -> Error {
             m_buffer.insert(m_buffer.end(), bytes.begin(), bytes.end());
             return {};
         };
@@ -188,10 +188,10 @@ TEST(StreamOptimizedVmdkEncoderTest, RejectsOutOfOrderGrains)
     auto encoder = std::move(encoderResult).value();
 
     const auto data = pattern(kGrainBytes, std::byte{1});
-    ASSERT_TRUE(encoder.writeGrain({2 * kGrainBytes, data}).hasValue());
+    ASSERT_TRUE(encoder.writeGrain({2 * kGrainBytes, data}).ok());
     auto result = encoder.writeGrain({kGrainBytes, data}); // goes backwards
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(StreamOptimizedVmdkEncoderTest, RejectsMisalignedGrainOffset)
@@ -202,8 +202,8 @@ TEST(StreamOptimizedVmdkEncoderTest, RejectsMisalignedGrainOffset)
     auto encoder = std::move(encoderResult).value();
     const auto data = pattern(kGrainBytes, std::byte{1});
     auto result = encoder.writeGrain({kGrainBytes / 2, data});
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(StreamOptimizedVmdkEncoderTest, RejectsWrongSizedGrainData)
@@ -214,8 +214,8 @@ TEST(StreamOptimizedVmdkEncoderTest, RejectsWrongSizedGrainData)
     auto encoder = std::move(encoderResult).value();
     const auto tooShort = pattern(kGrainBytes - 1, std::byte{1});
     auto result = encoder.writeGrain({0, tooShort});
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 // End-to-end structural round trip: write grain 0 with real data, skip grain 1 entirely (all-zero),
@@ -236,9 +236,9 @@ TEST(StreamOptimizedVmdkEncoderTest, TwoGrainDiskWithOneSkippedGrainRoundTripsSt
     auto encoder = std::move(encoderResult).value();
 
     const auto grain0Data = pattern(kGrainBytes, std::byte{0x42});
-    ASSERT_TRUE(encoder.writeGrain({0, grain0Data}).hasValue());
+    ASSERT_TRUE(encoder.writeGrain({0, grain0Data}).ok());
     // grain 1 (offset kGrainBytes) deliberately never written: must decode as empty/zero.
-    ASSERT_TRUE(encoder.finish().hasValue());
+    ASSERT_TRUE(encoder.finish().ok());
 
     const std::uint64_t descriptorSectors = (descriptor.size() + kSector - 1) / kSector;
     const std::uint64_t grainMarkerSector = 1 + descriptorSectors; // right after header + descriptor
@@ -304,8 +304,8 @@ TEST(StreamOptimizedVmdkEncoderTest, UncompressedGrainRoundTripsVerbatim)
     auto encoder = std::move(encoderResult).value();
 
     const auto grain0Data = pattern(kGrainBytes, std::byte{0x7A});
-    ASSERT_TRUE(encoder.writeGrain({0, grain0Data}).hasValue());
-    ASSERT_TRUE(encoder.finish().hasValue());
+    ASSERT_TRUE(encoder.writeGrain({0, grain0Data}).ok());
+    ASSERT_TRUE(encoder.finish().ok());
 
     const std::uint64_t descriptorSectors = 1; // "d" fits in one sector
     const std::uint64_t grainMarkerSector = 1 + descriptorSectors;
@@ -332,9 +332,9 @@ TEST(StreamOptimizedVmdkEncoderTest, ComputeDenseStreamSizeMatchesARealDenseUnco
     // computeDenseStreamSizeBytes() must predict the same total regardless of grain *content*, since
     // compression is off.
     for (std::uint64_t offset = 0; offset < capacity; offset += kGrainBytes) {
-        ASSERT_TRUE(encoder.writeGrain({offset, pattern(kGrainBytes, static_cast<std::byte>(offset))}).hasValue());
+        ASSERT_TRUE(encoder.writeGrain({offset, pattern(kGrainBytes, static_cast<std::byte>(offset))}).ok());
     }
-    ASSERT_TRUE(encoder.finish().hasValue());
+    ASSERT_TRUE(encoder.finish().ok());
 
     EXPECT_EQ(predictedResult.value(), sink.m_buffer.size());
 }
@@ -345,11 +345,11 @@ TEST(StreamOptimizedVmdkEncoderTest, WriteGrainAfterFinishFails)
     auto encoderResult = StreamOptimizedVmdkEncoder::create(sink.asSink(), kGrainBytes, "d");
     ASSERT_TRUE(encoderResult.hasValue());
     auto encoder = std::move(encoderResult).value();
-    ASSERT_TRUE(encoder.finish().hasValue());
+    ASSERT_TRUE(encoder.finish().ok());
     const auto data = pattern(kGrainBytes, std::byte{1});
     auto result = encoder.writeGrain({0, data});
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(StreamOptimizedVmdkEncoderTest, EverythingSectorAligned)
@@ -358,9 +358,9 @@ TEST(StreamOptimizedVmdkEncoderTest, EverythingSectorAligned)
     auto encoderResult = StreamOptimizedVmdkEncoder::create(sink.asSink(), 3 * kGrainBytes, "odd length desc");
     ASSERT_TRUE(encoderResult.hasValue());
     auto encoder = std::move(encoderResult).value();
-    ASSERT_TRUE(encoder.writeGrain({0, pattern(kGrainBytes, std::byte{9})}).hasValue());
-    ASSERT_TRUE(encoder.writeGrain({2 * kGrainBytes, pattern(kGrainBytes, std::byte{3})}).hasValue());
-    ASSERT_TRUE(encoder.finish().hasValue());
+    ASSERT_TRUE(encoder.writeGrain({0, pattern(kGrainBytes, std::byte{9})}).ok());
+    ASSERT_TRUE(encoder.writeGrain({2 * kGrainBytes, pattern(kGrainBytes, std::byte{3})}).ok());
+    ASSERT_TRUE(encoder.finish().ok());
     EXPECT_EQ(sink.m_buffer.size() % kSector, 0u) << "every write to the sink must land on a sector boundary";
 }
 

@@ -94,7 +94,7 @@ struct VSphereFolderPutPrepResult {
 /// `spec.fileName`/`spec.virtualSizeBytes` is empty/zero; `ErrorCode::IoError` on
 /// connection/auth/transport failure.
 ///
-[[nodiscard]] VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutImport(
+VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutImport(
     const ConnectParams& params, const VSphereFolderPutPrepSpec& spec);
 
 /// Attaches the already-fully-written file at `descriptorDatastorePath` (from `prepareFolderPutImport`'s
@@ -109,7 +109,7 @@ struct VSphereFolderPutPrepResult {
 /// physically fully allocated by the time this is called, the functional definition of
 /// eager-zeroed-thick regardless of which VIM API path created it.
 ///
-[[nodiscard]] VSphereSoap::Result<VSphereAttachResult> finishFolderPutImport(
+VSphereSoap::Result<VSphereAttachResult> finishFolderPutImport(
     const ConnectParams& params, const VmLocator& targetVm, const std::string& descriptorDatastorePath,
     std::uint64_t virtualSizeBytes, const VSphereAttachControllerSpec& controller);
 
@@ -123,7 +123,7 @@ struct VSphereFolderPutPrepResult {
 /// never got far enough to create it; only returns an error for a connection/auth failure that meant no
 /// cleanup could even be attempted.
 ///
-[[nodiscard]] VSphereSoap::Result<void> cleanupFolderPutImport(const ConnectParams& params,
+VSphereSoap::Error cleanupFolderPutImport(const ConnectParams& params,
                                                                      const VmLocator& targetVm,
                                                                      const std::string& descriptorDatastorePath);
 

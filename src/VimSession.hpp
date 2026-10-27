@@ -27,7 +27,7 @@ public:
     /// Fails with `ErrorCode::IoError` on transport/auth failure, `ErrorCode::InvalidFormat` if
     /// RetrieveServiceContent's response is missing an expected MoRef.
     ///
-    [[nodiscard]] static Result<std::unique_ptr<VimSession>> open(SoapClient& soap, std::string username,
+    static Result<std::unique_ptr<VimSession>> open(SoapClient& soap, std::string username,
                                                                      std::string password);
 
     /// Logs out (best-effort, swallowed on failure; matches the destructor discipline `SnapshotScope`
@@ -74,14 +74,14 @@ public:
     /// Posts `requestNode` (see `SoapClient::call`) through this session. vSphere sessions expire
     /// server-side; if the call faults with `NotAuthenticated`, this re-`Login`s once and retries
     /// the same call before giving up.
-    [[nodiscard]] Result<pugi::xml_document> call(const std::string& soapAction, const pugi::xml_node& requestNode);
+    Result<pugi::xml_document> call(const std::string& soapAction, const pugi::xml_node& requestNode);
 
 private:
     VimSession(SoapClient& soap, std::string username, std::string password, MoRef propertyCollector,
                MoRef rootFolder, MoRef searchIndex, MoRef sessionManager, MoRef ovfManager, MoRef fileManager,
                MoRef virtualDiskManager, MoRef viewManager);
 
-    [[nodiscard]] Result<void> login();
+    Error login();
     void logoutBestEffort() noexcept;
 
     SoapClient& m_soap;

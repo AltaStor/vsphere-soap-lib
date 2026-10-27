@@ -15,6 +15,11 @@ Error::Error(ErrorCode code, const std::string& message)
 Error::Error(ErrorCode code, const std::string& message, int errnoValue, const std::string& path)
     : m_code(code), m_message{message}, m_errno(errnoValue), m_path{path} {}
 
+bool Error::ok() const noexcept
+{
+    return m_code == ErrorCode::NoError;
+}
+
 ErrorCode Error::code() const noexcept
 {
     return m_code;

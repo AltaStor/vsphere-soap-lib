@@ -255,8 +255,8 @@ int runImport(const Args& args)
     // A failed upload leaves nothing worth keeping: the VM and its partial disk are deleted together.
     auto abandon = [&session](const std::string& message) {
         session.stopKeepAlive();
-        if (auto destroyed = session.destroyPlaceholderVm(); !destroyed) {
-            std::cerr << "Warning: VM " << session.vmId() << " could not be removed: " << destroyed.error().toString()
+        if (auto destroyed = session.destroyPlaceholderVm(); !destroyed.ok()) {
+            std::cerr << "Warning: VM " << session.vmId() << " could not be removed: " << destroyed.toString()
                       << "\n";
         }
         return fail(message);
@@ -286,8 +286,8 @@ int runImport(const Args& args)
         // Whole zero chunks are skipped; the keep-alive stops ESXi dropping a connection gone quiet over
         // them.
         if (allZero(buffer, length)) {
-            if (auto kept = target.keepAliveIfIdle(offset + length); !kept) {
-                return abandon(kept.error().toString());
+            if (auto kept = target.keepAliveIfIdle(offset + length); !kept.ok()) {
+                return abandon(kept.toString());
             }
         } else if (auto written = target.writeAt(offset, std::span<const std::byte>(buffer.data(), length)); !written) {
             return abandon(written.error().toString());
@@ -298,17 +298,17 @@ int runImport(const Args& args)
     }
     std::cerr << "\n";
 
-    if (auto flushed = target.flush(); !flushed) {
-        return abandon(flushed.error().toString());
+    if (auto flushed = target.flush(); !flushed.ok()) {
+        return abandon(flushed.toString());
     }
     session.stopKeepAlive();
-    if (auto completed = session.complete(); !completed) {
-        return fail("the disk was uploaded but the lease could not be completed: " + completed.error().toString());
+    if (auto completed = session.complete(); !completed.ok()) {
+        return fail("the disk was uploaded but the lease could not be completed: " + completed.toString());
     }
     // HttpNfcLease does not honor eagerZeroedThick by itself.
     if (spec.diskProvisioning == "eagerZeroedThick") {
-        if (auto zeroed = eagerZeroAllDisks(params, VmLocator::byMoref(session.vmId())); !zeroed) {
-            return fail(zeroed.error().toString());
+        if (auto zeroed = eagerZeroAllDisks(params, VmLocator::byMoref(session.vmId())); !zeroed.ok()) {
+            return fail(zeroed.toString());
         }
     }
     std::cerr << "imported " << inPath << " as VM '" << spec.vmName << "' (" << session.vmId() << ")\n";

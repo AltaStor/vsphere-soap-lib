@@ -232,7 +232,7 @@ Result<MoRef> reconfigVm(VimSession& session, const MoRef& vm, const char* opera
     return task;
 }
 
-Result<void> reconfigRemoveDisk(VimSession& session, const MoRef& vm, const VimDiskInfo& disk)
+Error reconfigRemoveDisk(VimSession& session, const MoRef& vm, const VimDiskInfo& disk)
 {
     logger()->info("detaching disk key={} from placeholder VM {} (keeping its backing file)", disk.key, vm.value);
     Result<MoRef> task = reconfigVm(session, vm, "remove", [&](pugi::xml_node device) {
@@ -269,7 +269,7 @@ Result<void> reconfigRemoveDisk(VimSession& session, const MoRef& vm, const VimD
     return {};
 }
 
-Result<void> reconfigAddDisk(VimSession& session, const MoRef& vm, int controllerKey, int unitNumber,
+Error reconfigAddDisk(VimSession& session, const MoRef& vm, int controllerKey, int unitNumber,
                               std::uint64_t capacityBytes, const std::string& datastorePath,
                               const std::string& diskProvisioning)
 {
@@ -381,7 +381,7 @@ Result<int> reconfigAddController(VimSession& session, VimInventory& inventory, 
 /// FileManager.MoveDatastoreFile_Task: moves one file as-is; a plain rename when source and destination
 /// are on the same datastore.
 /// On a .vmdk it moves only the descriptor, never the extent it references (see moveUploadedDisk()).
-Result<void> moveDatastoreFile(VimSession& session, const std::string& sourceName, const MoRef& sourceDc,
+Error moveDatastoreFile(VimSession& session, const std::string& sourceName, const MoRef& sourceDc,
                                  const std::string& destinationName, const MoRef& destinationDc)
 {
     logger()->info("moving {} -> {}", sourceName, destinationName);
@@ -421,7 +421,7 @@ Result<void> moveDatastoreFile(VimSession& session, const std::string& sourceNam
 /// Works across datastores, but physically rewrites the disk: a lazy-zeroed thick disk comes out
 /// eager-zeroed (confirmed live), and the time taken grows with disk size.
 ///
-Result<void> moveVirtualDisk(VimSession& session, const std::string& sourceName, const MoRef& sourceDc,
+Error moveVirtualDisk(VimSession& session, const std::string& sourceName, const MoRef& sourceDc,
                                const std::string& destinationName, const MoRef& destinationDc)
 {
     logger()->info("moving virtual disk {} -> {}", sourceName, destinationName);
@@ -468,7 +468,7 @@ Result<void> moveVirtualDisk(VimSession& session, const std::string& sourceName,
 /// the disk).
 /// Across datastores, MoveVirtualDisk_Task is the only option.
 ///
-Result<void> moveUploadedDisk(VimSession& session, const std::string& sourcePath, const MoRef& sourceDc,
+Error moveUploadedDisk(VimSession& session, const std::string& sourcePath, const MoRef& sourceDc,
                                 const std::string& destinationPath, const MoRef& destinationDc)
 {
     const auto source = parseDatastorePath(sourcePath);
@@ -497,22 +497,23 @@ Result<void> moveUploadedDisk(VimSession& session, const std::string& sourcePath
     }
     const std::string sourceExtent = "[" + datastore + "] " + sourceDir + extentName;
     const std::string destinationExtent = "[" + datastore + "] " + destinationDir + extentName;
-    if (auto moved = moveDatastoreFile(session, sourceExtent, sourceDc, destinationExtent, destinationDc); !moved) {
+    if (auto moved = moveDatastoreFile(session, sourceExtent, sourceDc, destinationExtent, destinationDc);
+        !moved.ok()) {
         logger()->info("renaming extent {} failed ({}); moving the disk with MoveVirtualDisk_Task instead",
-                        sourceExtent, moved.error().toString());
+                        sourceExtent, moved.toString());
         return moveVirtualDisk(session, sourcePath, sourceDc, destinationPath, destinationDc);
     }
-    if (auto moved = moveDatastoreFile(session, sourcePath, sourceDc, destinationPath, destinationDc); !moved) {
+    if (auto moved = moveDatastoreFile(session, sourcePath, sourceDc, destinationPath, destinationDc); !moved.ok()) {
         // Put the extent back so the disk stays usable at its original path.
         (void)moveDatastoreFile(session, destinationExtent, destinationDc, sourceExtent, sourceDc);
-        return std::move(moved).error();
+        return moved;
     }
     return {};
 }
 
 } // namespace
 
-Result<void> deleteDatastoreFile(VimSession& session, const std::string& name, const MoRef& datacenter)
+Error deleteDatastoreFile(VimSession& session, const std::string& name, const MoRef& datacenter)
 {
     logger()->info("deleting datastore file {}", name);
     pugi::xml_document request = makeVimRequest("DeleteDatastoreFile_Task", session.fileManager());
@@ -539,7 +540,7 @@ Result<void> deleteDatastoreFile(VimSession& session, const std::string& name, c
     return {};
 }
 
-Result<void> makeDatastoreDirectory(VimSession& session, const std::string& name, const MoRef& datacenter)
+Error makeDatastoreDirectory(VimSession& session, const std::string& name, const MoRef& datacenter)
 {
     logger()->info("creating datastore directory {}", name);
     pugi::xml_document request = makeVimRequest("MakeDirectory", session.fileManager());
@@ -559,7 +560,7 @@ Result<void> makeDatastoreDirectory(VimSession& session, const std::string& name
     return {}; // synchronous: no task to wait for, see this function's own doc comment.
 }
 
-Result<void> eagerZeroVirtualDisk(VimSession& session, const std::string& name, const MoRef& datacenter)
+Error eagerZeroVirtualDisk(VimSession& session, const std::string& name, const MoRef& datacenter)
 {
     logger()->info("eager-zeroing {} (forcing physical zero-fill to match the requested eagerZeroedThick "
                     "provisioning)", name);
@@ -586,7 +587,7 @@ Result<void> eagerZeroVirtualDisk(VimSession& session, const std::string& name, 
             node.text() = datacenter.value.c_str();
         }
 
-        Result<void> outcome = [&]() -> Result<void> {
+        Error outcome = [&]() -> Error {
             auto callResult = session.call("urn:vim25/EagerZeroVirtualDisk_Task", op);
             if (!callResult) {
                 return std::move(callResult).error();
@@ -602,8 +603,8 @@ Result<void> eagerZeroVirtualDisk(VimSession& session, const std::string& name, 
             return {};
         }();
 
-        if (outcome || attempt >= kMaxAttempts ||
-            outcome.error().message().find("was not found") == std::string::npos) {
+        if (outcome.ok() || attempt >= kMaxAttempts ||
+            outcome.message().find("was not found") == std::string::npos) {
             return outcome;
         }
         logger()->debug("EagerZeroVirtualDisk_Task on {} reported the file was not found (attempt {}/{}); retrying "
@@ -616,7 +617,7 @@ Result<void> eagerZeroVirtualDisk(VimSession& session, const std::string& name, 
 
 namespace {
 
-Result<void> unregisterVm(VimSession& session, const MoRef& vm)
+Error unregisterVm(VimSession& session, const MoRef& vm)
 {
     logger()->info("unregistering placeholder VM {} (files left in place)", vm.value);
     const pugi::xml_document request = makeVimRequest("UnregisterVM", vm);
@@ -660,11 +661,11 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
     }
 
     // --- detach from the placeholder (file stays where it is for now) ---
-    if (auto detached = reconfigRemoveDisk(session, spec.placeholderVm, uploadedDisk); !detached) {
+    if (auto detached = reconfigRemoveDisk(session, spec.placeholderVm, uploadedDisk); !detached.ok()) {
         return Error(ErrorCode::IoError, "failed to detach uploaded disk from placeholder VM " +
                                               spec.placeholderVm.value + " (placeholder left in place for manual "
                                               "recovery): " +
-                                              detached.error().message());
+                                              detached.message());
     }
 
     // --- eager-zero fixup, if requested, *before* the move below --------
@@ -687,10 +688,11 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
                              " but its datacenter could not be resolved to force eager-zeroing before it's moved: " +
                              placeholderDc.error().message());
         }
-        if (auto zeroed = eagerZeroVirtualDisk(session, uploadedDisk.rawFileName, placeholderDc.value()); !zeroed) {
+        if (auto zeroed = eagerZeroVirtualDisk(session, uploadedDisk.rawFileName, placeholderDc.value());
+            !zeroed.ok()) {
             return Error(ErrorCode::IoError, "disk detached from placeholder VM " + spec.placeholderVm.value +
                                                   " but forcing it eager-zeroed (before moving it) failed: " +
-                                                  zeroed.error().message());
+                                                  zeroed.message());
         }
     }
 
@@ -776,20 +778,20 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
     }
     if (auto moved = moveUploadedDisk(session, uploadedDisk.rawFileName, sourceDc.value(), destinationPath,
                                        destinationDc.value());
-        !moved) {
+        !moved.ok()) {
         return Error(ErrorCode::IoError, "disk detached from placeholder VM " + spec.placeholderVm.value +
                                               " but failed to move its file from " + uploadedDisk.rawFileName +
                                               " to " + destinationPath + " (file left at its original path for "
                                               "manual recovery): " +
-                                              moved.error().message());
+                                              moved.message());
     }
 
     // --- unregister the (now disk-less) placeholder, then delete its folder (its .vmx/.nvram/log
     // files): best-effort both ---
-    if (auto unregistered = unregisterVm(session, spec.placeholderVm); !unregistered) {
+    if (auto unregistered = unregisterVm(session, spec.placeholderVm); !unregistered.ok()) {
         logger()->warn("failed to unregister placeholder VM {} after moving its disk out (leaving it registered, "
                         "harmless but should be cleaned up manually): {}",
-                        spec.placeholderVm.value, unregistered.error().toString());
+                        spec.placeholderVm.value, unregistered.toString());
     } else {
         // The uploaded disk lived in the placeholder's own folder, which ImportVApp created for it
         // alone.
@@ -797,10 +799,10 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
         const std::string placeholderDir = dirOf(uploadedDisk.rawFileName);
         const std::string destinationDirPath = dirOf(destinationPath);
         if (!placeholderDir.empty() && placeholderDir.back() != ']' && placeholderDir != destinationDirPath) {
-            if (auto removed = deleteDatastoreFile(session, placeholderDir, sourceDc.value()); !removed) {
+            if (auto removed = deleteDatastoreFile(session, placeholderDir, sourceDc.value()); !removed.ok()) {
                 logger()->warn("failed to delete placeholder VM {}'s folder {} (harmless, but should be cleaned "
                                 "up manually): {}",
-                                spec.placeholderVm.value, placeholderDir, removed.error().toString());
+                                spec.placeholderVm.value, placeholderDir, removed.toString());
             }
         }
     }
@@ -867,22 +869,22 @@ Result<DiskAttachResult> attachDiskFile(VimSession& session, const MoRef& target
                                                   "eager-zeroing before attaching it: " +
                                                   datacenter.error().message());
         }
-        if (auto zeroed = eagerZeroVirtualDisk(session, datastorePath, datacenter.value()); !zeroed) {
+        if (auto zeroed = eagerZeroVirtualDisk(session, datastorePath, datacenter.value()); !zeroed.ok()) {
             return Error(ErrorCode::IoError, "disk file is at " + datastorePath +
                                                   " but forcing it eager-zeroed (before attaching it) failed: " +
-                                                  zeroed.error().message());
+                                                  zeroed.message());
         }
     }
 
     if (auto attached = reconfigAddDisk(session, targetVm, controllerKey, unitNumber, capacityBytes, datastorePath,
                                          diskProvisioning);
-        !attached) {
+        !attached.ok()) {
         return Error(ErrorCode::IoError, "disk file is at " + datastorePath +
                                               " (controllerKey=" + std::to_string(controllerKey) +
                                               ", unitNumber=" + std::to_string(unitNumber) +
                                               ") but the final attach reconfig failed -- retry the attach without "
                                               "re-uploading: " +
-                                              attached.error().message());
+                                              attached.message());
     }
 
     // --- post-attach provisioning verification --------------------------

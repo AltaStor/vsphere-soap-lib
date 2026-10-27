@@ -57,7 +57,7 @@ int main(int argc, char** argv)
     }
 
     auto encoderResult = StreamOptimizedVmdkEncoder::create(
-        [&vmdk](std::span<const std::byte> bytes) -> VSphereSoap::Result<void> {
+        [&vmdk](std::span<const std::byte> bytes) -> VSphereSoap::Error {
             vmdk.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
             if (!vmdk) {
                 return VSphereSoap::Error(VSphereSoap::ErrorCode::IoError, "vmdk_encoder_writer: write failed");
@@ -82,14 +82,14 @@ int main(int argc, char** argv)
         }
         raw.write(reinterpret_cast<const char*>(grain.data()), static_cast<std::streamsize>(grain.size()));
         if (allocated) {
-            if (auto result = encoder.writeGrain(VmdkGrain{index * kGrainBytes, grain}); !result) {
-                std::fprintf(stderr, "vmdk_encoder_writer: %s\n", result.error().toString().c_str());
+            if (auto result = encoder.writeGrain(VmdkGrain{index * kGrainBytes, grain}); !result.ok()) {
+                std::fprintf(stderr, "vmdk_encoder_writer: %s\n", result.toString().c_str());
                 return 1;
             }
         }
     }
-    if (auto result = encoder.finish(); !result) {
-        std::fprintf(stderr, "vmdk_encoder_writer: %s\n", result.error().toString().c_str());
+    if (auto result = encoder.finish(); !result.ok()) {
+        std::fprintf(stderr, "vmdk_encoder_writer: %s\n", result.toString().c_str());
         return 1;
     }
     vmdk.close();

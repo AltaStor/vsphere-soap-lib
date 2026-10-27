@@ -55,7 +55,7 @@ public:
     /// non-null, is populated only for the fault case); `ErrorCode::InvalidFormat` if the response isn't
     /// parseable XML or lacks a `Body` element.
     ///
-    [[nodiscard]] Result<pugi::xml_document> call(const std::string& soapAction, const pugi::xml_node& requestNode,
+    Result<pugi::xml_document> call(const std::string& soapAction, const pugi::xml_node& requestNode,
                                                      SoapFaultInfo* faultInfo = nullptr);
 
     /// The "name=value" Cookie header value captured from the last response's Set-Cookie, if any: empty

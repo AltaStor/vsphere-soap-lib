@@ -45,7 +45,7 @@ struct VSphereNetworkAdapterInfo {
 /// connection/auth/transport failure; `ErrorCode::InvalidFormat` on an unexpected vSphere response
 /// shape.
 ///
-[[nodiscard]] VSphereSoap::Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(
+VSphereSoap::Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(
     const ConnectParams& params, const VmLocator& vm);
 
 /// Connects, logs in, resolves `vm`, and returns its "Notes" text (`config.annotation`), not exposed by
@@ -56,7 +56,7 @@ struct VSphereNetworkAdapterInfo {
 /// unrelated pieces of VM metadata a caller may want independently, and keeping this function
 /// single-purpose matches this header's own existing shape.
 ///
-[[nodiscard]] VSphereSoap::Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm);
+VSphereSoap::Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm);
 
 /// One virtual disk on a vSphere VM, as reported by `config.hardware.device` (SOAP):
 /// the independent-of-creation-mechanism verification a test wants for a VM this project itself created
@@ -78,7 +78,7 @@ struct VSphereDiskSummary {
 /// Connects, logs in, resolves `vm`, and returns every virtual disk currently attached to it (in
 /// `config.hardware.device` order).
 /// Same failure modes as `listVmNetworkAdapters`.
-[[nodiscard]] VSphereSoap::Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
+VSphereSoap::Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
                                                                                      const VmLocator& vm);
 
 /// `runtime.powerState`, as one of "poweredOn", "poweredOff", "suspended", or "unknown": the SOAP API's
@@ -86,7 +86,7 @@ struct VSphereDiskSummary {
 /// values.
 /// Same failure modes as `listVmNetworkAdapters`.
 ///
-[[nodiscard]] VSphereSoap::Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator& vm);
+VSphereSoap::Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator& vm);
 
 /// `PowerOnVM_Task`: starts `vm` and waits for the task to complete (this only means vCenter accepted
 /// and finished the power-on request; it says nothing about whether a guest OS inside then actually
@@ -97,7 +97,7 @@ struct VSphereDiskSummary {
 /// Same failure modes as `listVmNetworkAdapters`, plus `ErrorCode::IoError` if the task itself fails or
 /// times out.
 ///
-[[nodiscard]] VSphereSoap::Result<void> powerOnVm(const ConnectParams& params, const VmLocator& vm);
+VSphereSoap::Error powerOnVm(const ConnectParams& params, const VmLocator& vm);
 
 /// Creates a small marker directory on `datastoreName` (its datacenter resolved via `resourcePoolMoref`,
 /// which must name a resource pool in that same datacenter) and immediately deletes it: a direct,
@@ -113,14 +113,14 @@ struct VSphereDiskSummary {
 /// (most commonly `NoPermission`); `ErrorCode::InvalidArgument` if `resourcePoolMoref`'s datacenter
 /// can't be resolved.
 ///
-[[nodiscard]] VSphereSoap::Result<void> checkDatastoreWriteAccess(const ConnectParams& params,
+VSphereSoap::Error checkDatastoreWriteAccess(const ConnectParams& params,
                                                                         const std::string& datastoreName,
                                                                         const std::string& resourcePoolMoref);
 
 /// `PowerOffVM_Task`: stops `vm` and waits for the task to complete.
 /// A no-op (not an error) if `vm` is already powered off.
 /// Same failure modes as `powerOnVm`.
-[[nodiscard]] VSphereSoap::Result<void> powerOffVm(const ConnectParams& params, const VmLocator& vm);
+VSphereSoap::Error powerOffVm(const ConnectParams& params, const VmLocator& vm);
 
 /// `Destroy_Task`: deletes `vm` and its files.
 /// Precondition: `vm` must already be powered off (this does not power it off itself; callers wanting
@@ -128,6 +128,6 @@ struct VSphereDiskSummary {
 /// is reported the same way as "successfully powered off").
 /// Same failure modes as `powerOnVm`.
 ///
-[[nodiscard]] VSphereSoap::Result<void> destroyVm(const ConnectParams& params, const VmLocator& vm);
+VSphereSoap::Error destroyVm(const ConnectParams& params, const VmLocator& vm);
 
 } // namespace VSphereSoap

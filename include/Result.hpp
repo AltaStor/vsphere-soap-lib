@@ -6,7 +6,6 @@
 #pragma once
 
 #include <cassert>
-#include <optional>
 #include <utility>
 #include <variant>
 
@@ -16,9 +15,9 @@ namespace VSphereSoap {
 
 /// Hand-rolled `std::expected<T, Error>` substitute (this project targets C++20, where `std::expected`
 /// is not available).
-/// Every fallible operation in this library returns a `Result<T>` (or `Result<void>`) rather than
-/// throwing; this is the one error-reporting mechanism used throughout the library.
-/// Exceptions are not part of the public contract of any function that returns `Result`.
+/// Every fallible operation in this library returns a `Result<T>` (or a bare `Error` when it has no payload)
+/// rather than throwing; this is the one error-reporting mechanism used throughout the library.
+/// Exceptions are not part of the public contract of any function that returns `Result` or `Error`.
 ///
 /// Usage:
 /// ```
@@ -38,7 +37,8 @@ public:
 
     /// Constructs a failed result holding `error`.
     /// Implicit so that `return someError;` works directly inside a function returning `Result<T>`.
-    Result(Error error) : m_storage(std::move(error)) {}
+    /// Precondition: `!error.ok()`, a success `Error` carries no value to return.
+    Result(Error error) : m_storage(std::move(error)) { assert(!std::get<Error>(m_storage).ok()); }
 
     /// True if this result holds a value rather than an error.
     [[nodiscard]] bool hasValue() const noexcept { return std::holds_alternative<T>(m_storage); }
@@ -92,47 +92,6 @@ public:
 
 private:
     std::variant<T, Error> m_storage;
-};
-
-/// Specialization for operations that succeed with no payload (e.g. `IDisk::flush`).
-/// Behaves like `Result<T>` with the value case carrying no data.
-template <>
-class [[nodiscard]] Result<void> {
-public:
-    /// Constructs a successful result.
-    Result() noexcept = default;
-
-    /// Constructs a failed result holding `error`.
-    /// Implicit so that `return someError;` works directly inside a function returning `Result<void>`.
-    Result(Error error) noexcept : m_error(std::move(error)) {}
-
-    /// True if this result represents success.
-    [[nodiscard]] bool hasValue() const noexcept { return !m_error.has_value(); }
-
-    /// Equivalent to `hasValue()`.
-    explicit operator bool() const noexcept { return hasValue(); }
-
-    /// Accesses the held error.
-    /// Precondition: `!hasValue()`.
-    /// Does not throw; violating the precondition trips an assertion in debug builds and is undefined
-    /// behavior in release builds.
-    ///
-    [[nodiscard]] const Error& error() const &
-    {
-        assert(!hasValue());
-        return *m_error;
-    }
-
-    /// Rvalue overload of `error()`.
-    /// Same precondition.
-    [[nodiscard]] Error&& error() &&
-    {
-        assert(!hasValue());
-        return std::move(*m_error);
-    }
-
-private:
-    std::optional<Error> m_error;
 };
 
 } // namespace VSphereSoap

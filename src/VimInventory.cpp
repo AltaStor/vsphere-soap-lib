@@ -324,7 +324,7 @@ void resolveDistributedPortgroupDetails(VimSession& session, std::vector<VimNetw
 // Sends `op` (a `RetrievePropertiesEx` request) and then `ContinueRetrievePropertiesEx` for as long as
 // a page comes back with a `token`, handing every returned `ObjectContent` to `onObject`.
 template <typename OnObject>
-Result<void> retrievePropertiesPaged(VimSession& session, const pugi::xml_node& op, OnObject&& onObject)
+Error retrievePropertiesPaged(VimSession& session, const pugi::xml_node& op, OnObject&& onObject)
 {
     std::string token;
     bool firstPage = true;
@@ -456,13 +456,13 @@ Result<VimVmInfo> VimInventory::describeVm(const MoRef& vm)
     op.append_child("options");
 
     bool found = false;
-    if (Result<void> retrieved = retrievePropertiesPaged(m_session, op,
+    if (Error retrieved = retrievePropertiesPaged(m_session, op,
                                                          [&](pugi::xml_node objectContent) {
                                                              found = true;
                                                              parseObjectContentInto(objectContent, info);
                                                          });
-        !retrieved) {
-        return std::move(retrieved).error();
+        !retrieved.ok()) {
+        return retrieved;
     }
 
     if (!found) {
@@ -608,7 +608,7 @@ Result<std::vector<VimObjectProperties>> VimInventory::listObjects(const std::st
     op.append_child("options");
 
     std::vector<VimObjectProperties> objects;
-    Result<void> retrieved = retrievePropertiesPaged(m_session, op, [&](pugi::xml_node objectContent) {
+    Error retrieved = retrievePropertiesPaged(m_session, op, [&](pugi::xml_node objectContent) {
         VimObjectProperties object;
         object.moref = parseMoRef(objectContent.child("obj"));
         for (pugi::xml_node prop = objectContent.child("propSet"); prop; prop = prop.next_sibling("propSet")) {
@@ -624,8 +624,8 @@ Result<std::vector<VimObjectProperties>> VimInventory::listObjects(const std::st
     const pugi::xml_document destroyRequest = makeVimRequest("DestroyView", view);
     (void)m_session.call("urn:vim25/DestroyView", destroyRequest.document_element());
 
-    if (!retrieved) {
-        return std::move(retrieved).error();
+    if (!retrieved.ok()) {
+        return retrieved;
     }
     return objects;
 }

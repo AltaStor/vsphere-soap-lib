@@ -102,7 +102,7 @@ Result<std::optional<MoRef>> findExistingSnapshotByName(VimSession& session, con
 
 } // namespace
 
-Result<void> SnapshotScope::removeIfExists(VimSession& session, const MoRef& vm, std::string name)
+Error SnapshotScope::removeIfExists(VimSession& session, const MoRef& vm, std::string name)
 {
     logger()->debug("checking {} {} for a pre-existing '{}' snapshot", vm.type, vm.value, name);
     auto existingResult = findExistingSnapshotByName(session, vm, name);
@@ -133,8 +133,8 @@ Result<void> SnapshotScope::removeIfExists(VimSession& session, const MoRef& vm,
 Result<std::unique_ptr<SnapshotScope>> SnapshotScope::create(VimSession& session, const MoRef& vm, std::string name,
                                                                 bool quiesce)
 {
-    if (auto cleanup = removeIfExists(session, vm, name); !cleanup) {
-        return std::move(cleanup).error();
+    if (auto cleanup = removeIfExists(session, vm, name); !cleanup.ok()) {
+        return cleanup;
     }
 
     pugi::xml_document request = makeVimRequest("CreateSnapshot_Task", vm);

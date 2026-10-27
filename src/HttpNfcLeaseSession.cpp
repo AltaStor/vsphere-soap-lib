@@ -295,7 +295,7 @@ void HttpNfcLeaseSession::stopKeepAlive()
     }
 }
 
-Result<void> HttpNfcLeaseSession::complete()
+Error HttpNfcLeaseSession::complete()
 {
     if (m_completed) {
         return {};

@@ -20,7 +20,7 @@ GrainAssembler::GrainAssembler(std::uint64_t grainSizeBytes, GrainSink sink,
     : m_grainSizeBytes(grainSizeBytes), m_sink(std::move(sink)), m_denseCapacityBytes(denseCapacityBytes),
       m_pendingGrain(grainSizeBytes) {}
 
-Result<void> GrainAssembler::zeroFillGrainsUpTo(std::uint64_t targetOffset)
+Error GrainAssembler::zeroFillGrainsUpTo(std::uint64_t targetOffset)
 {
     if (!m_denseCapacityBytes) {
         return {};
@@ -29,7 +29,7 @@ Result<void> GrainAssembler::zeroFillGrainsUpTo(std::uint64_t targetOffset)
     // definition (they're all-zero), so there's nothing to gain from a fresh buffer per grain.
     const std::vector<std::byte> zeroGrain(m_grainSizeBytes, std::byte{0});
     while (m_nextGrainOffset < targetOffset) {
-        if (auto result = m_sink(m_nextGrainOffset, std::span<const std::byte>(zeroGrain)); !result) {
+        if (auto result = m_sink(m_nextGrainOffset, std::span<const std::byte>(zeroGrain)); !result.ok()) {
             return result;
         }
         m_nextGrainOffset += m_grainSizeBytes;
@@ -37,7 +37,7 @@ Result<void> GrainAssembler::zeroFillGrainsUpTo(std::uint64_t targetOffset)
     return {};
 }
 
-Result<void> GrainAssembler::consume(std::uint64_t offset, std::span<const std::byte> in)
+Error GrainAssembler::consume(std::uint64_t offset, std::span<const std::byte> in)
 {
     if (in.empty()) {
         return {};
@@ -65,7 +65,7 @@ Result<void> GrainAssembler::consume(std::uint64_t offset, std::span<const std::
                 const std::uint64_t grainOffset = m_pendingGrainOffset;
                 m_pendingGrainFilled = 0;
                 if (auto result = m_sink(grainOffset, std::span<const std::byte>(m_pendingGrain.data(), m_grainSizeBytes));
-                    !result) {
+                    !result.ok()) {
                     return result;
                 }
                 m_nextGrainOffset = grainOffset + m_grainSizeBytes;
@@ -81,13 +81,13 @@ Result<void> GrainAssembler::consume(std::uint64_t offset, std::span<const std::
             const std::uint64_t grainOffset = m_pendingGrainOffset;
             m_pendingGrainFilled = 0;
             if (auto result = m_sink(grainOffset, std::span<const std::byte>(m_pendingGrain.data(), m_grainSizeBytes));
-                !result) {
+                !result.ok()) {
                 return result;
             }
             m_nextGrainOffset = grainOffset + m_grainSizeBytes;
             // The old pending grain is accounted for; anything further still unwritten between it and
             // `pos` is a real gap.
-            if (auto result = zeroFillGrainsUpTo(pos); !result) {
+            if (auto result = zeroFillGrainsUpTo(pos); !result.ok()) {
                 return result;
             }
         }
@@ -98,11 +98,11 @@ Result<void> GrainAssembler::consume(std::uint64_t offset, std::span<const std::
             return Error(ErrorCode::InvalidArgument,
                          "GrainAssembler::consume: offset " + std::to_string(pos) + " is not grain-aligned");
         }
-        if (auto result = zeroFillGrainsUpTo(pos); !result) {
+        if (auto result = zeroFillGrainsUpTo(pos); !result.ok()) {
             return result;
         }
         while (remaining.size() >= m_grainSizeBytes) {
-            if (auto result = m_sink(pos, remaining.first(m_grainSizeBytes)); !result) {
+            if (auto result = m_sink(pos, remaining.first(m_grainSizeBytes)); !result.ok()) {
                 return result;
             }
             m_nextGrainOffset = pos + m_grainSizeBytes;
@@ -120,14 +120,14 @@ Result<void> GrainAssembler::consume(std::uint64_t offset, std::span<const std::
     return {};
 }
 
-Result<void> GrainAssembler::finish()
+Error GrainAssembler::finish()
 {
     if (m_pendingGrainFilled > 0) {
         std::memset(m_pendingGrain.data() + m_pendingGrainFilled, 0, m_grainSizeBytes - m_pendingGrainFilled);
         const std::uint64_t grainOffset = m_pendingGrainOffset;
         m_pendingGrainFilled = 0;
         if (auto result = m_sink(grainOffset, std::span<const std::byte>(m_pendingGrain.data(), m_grainSizeBytes));
-            !result) {
+            !result.ok()) {
             return result;
         }
         m_nextGrainOffset = grainOffset + m_grainSizeBytes;

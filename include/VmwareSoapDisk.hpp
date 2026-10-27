@@ -111,7 +111,7 @@ public:
     /// `ErrorCode::InvalidFormat` on an unexpected vSphere response shape.
     /// Cleans up any session/snapshot it already acquired before returning an error.
     ///
-    [[nodiscard]] static VSphereSoap::Result<std::unique_ptr<VmwareSoapDisk>>
+    static VSphereSoap::Result<std::unique_ptr<VmwareSoapDisk>>
     open(const ConnectParams& params, const VmLocator& vm, const DiskSelector& disk);
 
     /// Removes the CBT baseline snapshot (if one was taken) and logs out, both best-effort.
@@ -132,7 +132,7 @@ public:
 
     /// No-op: nothing is buffered here.
     /// Always succeeds.
-    VSphereSoap::Result<void> flush() override;
+    VSphereSoap::Error flush() override;
 
     /// Overridden per `IDisk`'s documented extension point: answers from the CBT allocated-block map
     /// without touching the data region when one is active (`cbtActive()`); falls back to the base

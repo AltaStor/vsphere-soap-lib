@@ -44,7 +44,7 @@ public:
     };
     std::vector<RecordedRequest> m_requests;
 
-    [[nodiscard]] VSphereSoap::Result<Detail::HttpResponse> request(Detail::HttpMethod method,
+    VSphereSoap::Result<Detail::HttpResponse> request(Detail::HttpMethod method,
                                                                           const std::string& target,
                                                                           const std::vector<Detail::HttpHeader>& headers,
                                                                           std::string body) override
@@ -66,7 +66,7 @@ public:
                                      "FakeHttpTransport: no response scripted for target " + target);
     }
 
-    [[nodiscard]] VSphereSoap::Result<Detail::HttpResponse> requestPutFile(
+    VSphereSoap::Result<Detail::HttpResponse> requestPutFile(
         const std::string& target, const std::vector<Detail::HttpHeader>& headers, const std::string& localFilePath,
         std::chrono::seconds /*timeout*/) override
     {
@@ -91,7 +91,7 @@ public:
     /// encoding can check this.
     std::vector<std::optional<std::uint64_t>> m_streamedContentLengths;
 
-    [[nodiscard]] VSphereSoap::Result<Detail::HttpResponse> requestPutStream(
+    VSphereSoap::Result<Detail::HttpResponse> requestPutStream(
         const std::string& target, const std::vector<Detail::HttpHeader>& headers,
         Detail::HttpBodyChunkProducer producer, std::chrono::seconds /*timeout*/,
         std::optional<std::uint64_t> contentLength) override
@@ -99,7 +99,7 @@ public:
         return stream(Detail::HttpMethod::Put, target, headers, std::move(producer), contentLength);
     }
 
-    [[nodiscard]] VSphereSoap::Result<Detail::HttpResponse> requestPostStream(
+    VSphereSoap::Result<Detail::HttpResponse> requestPostStream(
         const std::string& target, const std::vector<Detail::HttpHeader>& headers,
         Detail::HttpBodyChunkProducer producer, std::chrono::seconds /*timeout*/,
         std::optional<std::uint64_t> contentLength) override

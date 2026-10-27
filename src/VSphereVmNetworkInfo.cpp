@@ -213,7 +213,7 @@ Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator
     return std::string(powerStateName(vmInfoResult.value().powerState));
 }
 
-Result<void> powerOnVm(const ConnectParams& params, const VmLocator& vm)
+Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
 {
     auto internalLocator = toInternalLocator(vm);
     if (!internalLocator) {
@@ -254,7 +254,7 @@ Result<void> powerOnVm(const ConnectParams& params, const VmLocator& vm)
     return {};
 }
 
-Result<void> powerOffVm(const ConnectParams& params, const VmLocator& vm)
+Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
 {
     auto internalLocator = toInternalLocator(vm);
     if (!internalLocator) {
@@ -295,7 +295,7 @@ Result<void> powerOffVm(const ConnectParams& params, const VmLocator& vm)
     return {};
 }
 
-Result<void> destroyVm(const ConnectParams& params, const VmLocator& vm)
+Error destroyVm(const ConnectParams& params, const VmLocator& vm)
 {
     auto internalLocator = toInternalLocator(vm);
     if (!internalLocator) {
@@ -336,7 +336,7 @@ Result<void> destroyVm(const ConnectParams& params, const VmLocator& vm)
     return {};
 }
 
-Result<void> checkDatastoreWriteAccess(const ConnectParams& params, const std::string& datastoreName,
+Error checkDatastoreWriteAccess(const ConnectParams& params, const std::string& datastoreName,
                                          const std::string& resourcePoolMoref)
 {
     Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -365,15 +365,15 @@ Result<void> checkDatastoreWriteAccess(const ConnectParams& params, const std::s
                             std::chrono::system_clock::now().time_since_epoch()).count();
     const std::string marker = "[" + datastoreName + "] .preflight-write-test-" + std::to_string(nowMs);
 
-    if (auto made = Detail::makeDatastoreDirectory(*session, marker, datacenterResult.value()); !made) {
+    if (auto made = Detail::makeDatastoreDirectory(*session, marker, datacenterResult.value()); !made.ok()) {
         return Error(ErrorCode::IoError,
                      "could not create a test directory on datastore '" + datastoreName +
-                         "' -- this session likely lacks Datastore.FileManagement there: " + made.error().message());
+                         "' -- this session likely lacks Datastore.FileManagement there: " + made.message());
     }
-    if (auto deleted = Detail::deleteDatastoreFile(*session, marker, datacenterResult.value()); !deleted) {
+    if (auto deleted = Detail::deleteDatastoreFile(*session, marker, datacenterResult.value()); !deleted.ok()) {
         logger()->warn("write-access probe left behind '{}' on datastore '{}' (cleanup failed, but the create "
                         "already proved write access): {}",
-                        marker, datastoreName, deleted.error().toString());
+                        marker, datastoreName, deleted.toString());
     }
     return {};
 }

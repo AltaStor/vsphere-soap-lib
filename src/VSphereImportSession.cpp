@@ -156,9 +156,9 @@ void VSphereImportSession::startKeepAlive(std::function<int()> percentComplete, 
 
 void VSphereImportSession::stopKeepAlive() { m_impl->m_lease->stopKeepAlive(); }
 
-Result<void> VSphereImportSession::complete() { return m_impl->m_lease->complete(); }
+Error VSphereImportSession::complete() { return m_impl->m_lease->complete(); }
 
-Result<void> VSphereImportSession::destroyPlaceholderVm()
+Error VSphereImportSession::destroyPlaceholderVm()
 {
     const Detail::MoRef vm{"VirtualMachine", m_impl->m_vmId};
     logger()->info("destroying placeholder VM {} (upload failed or was cancelled -- deleting its files too)",

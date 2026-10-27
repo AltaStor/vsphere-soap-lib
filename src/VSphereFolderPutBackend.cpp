@@ -108,7 +108,7 @@ public:
 
     bool m_flushed = false;
 
-    Result<void> pushChunk(std::vector<std::byte> chunk)
+    Error pushChunk(std::vector<std::byte> chunk)
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_cv.wait(lock, [&] { return m_queue.size() < kMaxQueuedChunks || m_uploadThreadDone; });
@@ -152,14 +152,14 @@ public:
     // Pushing immediately keeps that gap to whatever pushChunk()'s own locking costs, not "however long
     // until this disk's next MiB of data exists".
     //
-    Result<void> appendBytes(std::span<const std::byte> bytes)
+    Error appendBytes(std::span<const std::byte> bytes)
     {
         std::size_t offset = 0;
         while (offset < bytes.size()) {
             const std::size_t n = std::min(bytes.size() - offset, kTargetHttpChunkBytes);
             std::vector<std::byte> piece(bytes.begin() + static_cast<std::ptrdiff_t>(offset),
                                            bytes.begin() + static_cast<std::ptrdiff_t>(offset + n));
-            if (auto result = pushChunk(std::move(piece)); !result) {
+            if (auto result = pushChunk(std::move(piece)); !result.ok()) {
                 return result;
             }
             offset += n;
@@ -169,14 +169,14 @@ public:
 
     // Zero-fills [nextOffset, targetOffset) in bounded batches (never materializing the whole gap as one
     // buffer, however large) and advances nextOffset to targetOffset.
-    Result<void> zeroFillTo(std::uint64_t targetOffset)
+    Error zeroFillTo(std::uint64_t targetOffset)
     {
         static constexpr std::uint64_t kZeroBatchBytes = 1024 * 1024;
         while (m_nextOffset < targetOffset) {
             const std::uint64_t remaining = targetOffset - m_nextOffset;
             const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, kZeroBatchBytes));
             const std::vector<std::byte> zeros(n, std::byte{0});
-            if (auto result = appendBytes(zeros); !result) {
+            if (auto result = appendBytes(zeros); !result.ok()) {
                 return result;
             }
             m_nextOffset += n;
@@ -276,12 +276,12 @@ Result<std::uint64_t> VSphereFolderPutBackend::writeAt(std::uint64_t offset, std
     }
 
     if (offset > m_impl->m_nextOffset) {
-        if (auto result = m_impl->zeroFillTo(offset); !result) {
-            return std::move(result).error();
+        if (auto result = m_impl->zeroFillTo(offset); !result.ok()) {
+            return result;
         }
     }
-    if (auto result = m_impl->appendBytes(in); !result) {
-        return std::move(result).error();
+    if (auto result = m_impl->appendBytes(in); !result.ok()) {
+        return result;
     }
     m_impl->m_nextOffset += in.size();
     return in.size();
@@ -290,7 +290,7 @@ Result<std::uint64_t> VSphereFolderPutBackend::writeAt(std::uint64_t offset, std
 std::uint64_t VSphereFolderPutBackend::virtualSize() const noexcept { return m_impl->m_virtualSizeBytes; }
 std::uint64_t VSphereFolderPutBackend::sectorSize() const noexcept { return 512; }
 
-Result<void> VSphereFolderPutBackend::flush()
+Error VSphereFolderPutBackend::flush()
 {
     if (m_impl->m_flushed) {
         return {};
@@ -303,7 +303,7 @@ Result<void> VSphereFolderPutBackend::flush()
     // Nothing else to push here, unlike VSphereDatastoreBackend, appendBytes() never leaves a partial
     // batch sitting unflushed (see its own doc comment).
     //
-    Result<void> tailFillResult = m_impl->zeroFillTo(m_impl->m_virtualSizeBytes);
+    Error tailFillResult = m_impl->zeroFillTo(m_impl->m_virtualSizeBytes);
 
     {
         std::lock_guard<std::mutex> lock(m_impl->m_mutex);
@@ -314,7 +314,7 @@ Result<void> VSphereFolderPutBackend::flush()
         m_impl->m_uploadThread.join();
     }
 
-    if (!tailFillResult) {
+    if (!tailFillResult.ok()) {
         return tailFillResult;
     }
     if (!m_impl->m_uploadResult) {

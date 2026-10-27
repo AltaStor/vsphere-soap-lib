@@ -33,14 +33,14 @@ class IHttpTransport {
 public:
     virtual ~IHttpTransport() = default;
 
-    [[nodiscard]] virtual Result<HttpResponse> request(HttpMethod method, const std::string& target,
+    virtual Result<HttpResponse> request(HttpMethod method, const std::string& target,
                                                           const std::vector<HttpHeader>& headers,
                                                           std::string body = {}) = 0;
 
     /// Like `request(HttpMethod::Put, ...)`, but streams a local file's contents as the body rather than
     /// buffering it into a `std::string` first: see `HttpsRestClient::requestPutFile()`, which this
     /// always forwards to on the concrete `HttpTransportAdapter`.
-    [[nodiscard]] virtual Result<HttpResponse> requestPutFile(const std::string& target,
+    virtual Result<HttpResponse> requestPutFile(const std::string& target,
                                                                 const std::vector<HttpHeader>& headers,
                                                                 const std::string& localFilePath,
                                                                 std::chrono::seconds timeout) = 0;
@@ -52,7 +52,7 @@ public:
     /// This is the seam `VSphereDatastoreBackend` uploads a stream-optimized VMDK through with no local
     /// staging file, unlike `requestPutFile`.
     ///
-    [[nodiscard]] virtual Result<HttpResponse> requestPutStream(const std::string& target,
+    virtual Result<HttpResponse> requestPutStream(const std::string& target,
                                                                    const std::vector<HttpHeader>& headers,
                                                                    HttpBodyChunkProducer producer,
                                                                    std::chrono::seconds timeout,
@@ -60,7 +60,7 @@ public:
 
     /// `requestPutStream()` sent as POST: see `HttpsRestClient::requestPostStream()` for why
     /// an HttpNfcLease import disk upload needs POST rather than PUT.
-    [[nodiscard]] virtual Result<HttpResponse> requestPostStream(const std::string& target,
+    virtual Result<HttpResponse> requestPostStream(const std::string& target,
                                                                     const std::vector<HttpHeader>& headers,
                                                                     HttpBodyChunkProducer producer,
                                                                     std::chrono::seconds timeout,

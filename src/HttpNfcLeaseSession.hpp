@@ -183,7 +183,7 @@ public:
     /// On any failure after `ImportVApp` itself succeeded, aborts the lease before returning rather than
     /// leaving it dangling.
     ///
-    [[nodiscard]] static Result<std::unique_ptr<HttpNfcLeaseSession>> begin(VimSession& session,
+    static Result<std::unique_ptr<HttpNfcLeaseSession>> begin(VimSession& session,
                                                                                const ImportVmSpec& spec);
 
     /// Aborts the lease if `complete()` was never called successfully (best-effort, matching
@@ -222,7 +222,7 @@ public:
     /// data made it to the destination, only that the lease is being told it did.
     /// Idempotent: a second call after a successful first one is a no-op.
     ///
-    [[nodiscard]] Result<void> complete();
+    Error complete();
 
 private:
     HttpNfcLeaseSession(VimSession& session, MoRef lease, MoRef vm, std::vector<LeaseDeviceUrl> deviceUrls);

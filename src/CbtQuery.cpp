@@ -14,7 +14,7 @@ using VSphereSoap::ErrorCode;
 
 CbtQuery::CbtQuery(VimSession& session) : m_session(session) {}
 
-Result<void> CbtQuery::checkEligible(const VimVmInfo& vmInfo, const VimDiskInfo& disk) const
+Error CbtQuery::checkEligible(const VimVmInfo& vmInfo, const VimDiskInfo& disk) const
 {
     if (!vmInfo.changeTrackingEnabled) {
         return Error(ErrorCode::NotImplemented, "changed block tracking is not enabled on VM '" + vmInfo.name +

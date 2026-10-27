@@ -36,7 +36,7 @@ struct RecordedGrain {
 class RecordingAssembler {
 public:
     RecordingAssembler()
-        : m_assembler(kGrainBytes, [this](std::uint64_t offset, std::span<const std::byte> data) -> Result<void> {
+        : m_assembler(kGrainBytes, [this](std::uint64_t offset, std::span<const std::byte> data) -> Error {
               m_grains.push_back({offset, std::vector<std::byte>(data.begin(), data.end())});
               return {};
           }) {}
@@ -49,8 +49,8 @@ TEST(GrainAssemblerTest, SingleFullGrainWriteEmitsOneGrain)
 {
     RecordingAssembler r;
     const auto data = pattern(kGrainBytes, std::byte{1});
-    ASSERT_TRUE(r.m_assembler.consume(0, data).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, data).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 1u);
     EXPECT_EQ(r.m_grains[0].offset, 0u);
@@ -61,8 +61,8 @@ TEST(GrainAssemblerTest, MultiGrainWriteInOneCallSplitsIntoSeparateGrains)
 {
     RecordingAssembler r;
     const auto data = pattern(3 * kGrainBytes, std::byte{7});
-    ASSERT_TRUE(r.m_assembler.consume(0, data).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, data).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 3u);
     for (std::size_t i = 0; i < 3; ++i) {
@@ -77,9 +77,9 @@ TEST(GrainAssemblerTest, SmallWritesAccumulateAcrossCallsIntoOneGrain)
     RecordingAssembler r;
     const auto part1 = pattern(kGrainBytes / 2, std::byte{1});
     const auto part2 = pattern(kGrainBytes / 2, std::byte{2});
-    ASSERT_TRUE(r.m_assembler.consume(0, part1).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, part1).ok());
     EXPECT_TRUE(r.m_grains.empty()) << "a partial grain must not be emitted until it's complete";
-    ASSERT_TRUE(r.m_assembler.consume(kGrainBytes / 2, part2).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(kGrainBytes / 2, part2).ok());
 
     ASSERT_EQ(r.m_grains.size(), 1u);
     EXPECT_EQ(r.m_grains[0].offset, 0u);
@@ -93,11 +93,11 @@ TEST(GrainAssemblerTest, GapAtGrainBoundaryIsSkippedNotEmitted)
     RecordingAssembler r;
     const auto grain0 = pattern(kGrainBytes, std::byte{1});
     const auto grain2 = pattern(kGrainBytes, std::byte{3});
-    ASSERT_TRUE(r.m_assembler.consume(0, grain0).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, grain0).ok());
     // grain 1 (offset kGrainBytes) is skipped entirely: matches a copy loop never calling writeAt() for
     // a zero chunk.
-    ASSERT_TRUE(r.m_assembler.consume(2 * kGrainBytes, grain2).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(2 * kGrainBytes, grain2).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 2u);
     EXPECT_EQ(r.m_grains[0].offset, 0u);
@@ -108,12 +108,12 @@ TEST(GrainAssemblerTest, GapAfterPartialGrainZeroPadsAndEmitsIt)
 {
     RecordingAssembler r;
     const auto part1 = pattern(kGrainBytes / 4, std::byte{9}); // fills a quarter of grain 0
-    ASSERT_TRUE(r.m_assembler.consume(0, part1).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, part1).ok());
     // The rest of grain 0, plus all of grain 1, is skipped as zero: next real data starts at grain 2's
     // boundary.
     const auto grain2 = pattern(kGrainBytes, std::byte{5});
-    ASSERT_TRUE(r.m_assembler.consume(2 * kGrainBytes, grain2).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(2 * kGrainBytes, grain2).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 2u);
     EXPECT_EQ(r.m_grains[0].offset, 0u);
@@ -128,8 +128,8 @@ TEST(GrainAssemblerTest, FinishZeroPadsTrailingPartialGrain)
 {
     RecordingAssembler r;
     const auto part = pattern(kGrainBytes / 3, std::byte{4});
-    ASSERT_TRUE(r.m_assembler.consume(0, part).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, part).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 1u);
     EXPECT_EQ(r.m_grains[0].offset, 0u);
@@ -142,9 +142,9 @@ TEST(GrainAssemblerTest, FinishWithNothingPendingEmitsNothing)
 {
     RecordingAssembler r;
     const auto data = pattern(kGrainBytes, std::byte{1});
-    ASSERT_TRUE(r.m_assembler.consume(0, data).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, data).ok());
     ASSERT_EQ(r.m_grains.size(), 1u);
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
     EXPECT_EQ(r.m_grains.size(), 1u) << "finish() must not re-emit or duplicate an already-completed grain";
 }
 
@@ -152,33 +152,33 @@ TEST(GrainAssemblerTest, RejectsBackwardOffset)
 {
     RecordingAssembler r;
     const auto data = pattern(kGrainBytes, std::byte{1});
-    ASSERT_TRUE(r.m_assembler.consume(kGrainBytes, data).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(kGrainBytes, data).ok());
     auto result = r.m_assembler.consume(0, data);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(GrainAssemblerTest, RejectsOverlappingOffset)
 {
     RecordingAssembler r;
     const auto data = pattern(kGrainBytes, std::byte{1});
-    ASSERT_TRUE(r.m_assembler.consume(0, data).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, data).ok());
     // overlaps the tail of what was just consumed
     auto result = r.m_assembler.consume(kGrainBytes / 2, data);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(GrainAssemblerTest, RejectsNonGrainAlignedGapAfterPartialGrain)
 {
     RecordingAssembler r;
     const auto part1 = pattern(kGrainBytes / 4, std::byte{1});
-    ASSERT_TRUE(r.m_assembler.consume(0, part1).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, part1).ok());
     // Jump to a misaligned offset that's neither a contiguous continuation nor a grain boundary.
     const auto data = pattern(kGrainBytes, std::byte{2});
     auto result = r.m_assembler.consume(kGrainBytes + 1, data);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(GrainAssemblerTest, RejectsNonGrainAlignedFreshOffset)
@@ -186,14 +186,14 @@ TEST(GrainAssemblerTest, RejectsNonGrainAlignedFreshOffset)
     RecordingAssembler r;
     const auto data = pattern(kGrainBytes, std::byte{1});
     auto result = r.m_assembler.consume(1, data);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::InvalidArgument);
 }
 
 TEST(GrainAssemblerTest, EmptyInputIsANoOp)
 {
     RecordingAssembler r;
-    EXPECT_TRUE(r.m_assembler.consume(0, {}).hasValue());
+    EXPECT_TRUE(r.m_assembler.consume(0, {}).ok());
     EXPECT_TRUE(r.m_grains.empty());
 }
 
@@ -205,7 +205,7 @@ class DenseRecordingAssembler {
 public:
     explicit DenseRecordingAssembler(std::uint64_t capacityBytes)
         : m_assembler(kGrainBytes,
-                     [this](std::uint64_t offset, std::span<const std::byte> data) -> Result<void> {
+                     [this](std::uint64_t offset, std::span<const std::byte> data) -> Error {
                          m_grains.push_back({offset, std::vector<std::byte>(data.begin(), data.end())});
                          return {};
                      },
@@ -221,8 +221,8 @@ TEST(GrainAssemblerTest, DenseModeFillsLeadingGapWithZeros)
     const auto grain2 = pattern(kGrainBytes, std::byte{9});
     // Grains 0 and 1 are skipped by the caller (e.g. a zero-region source chunk): dense mode must still
     // emit them, zero-filled.
-    ASSERT_TRUE(r.m_assembler.consume(2 * kGrainBytes, grain2).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(2 * kGrainBytes, grain2).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 3u);
     EXPECT_EQ(r.m_grains[0].offset, 0u);
@@ -237,11 +237,11 @@ TEST(GrainAssemblerTest, DenseModeFillsGapBetweenPartialGrainAndNextWrite)
 {
     DenseRecordingAssembler r(4 * kGrainBytes);
     const auto part = pattern(kGrainBytes / 4, std::byte{1}); // partially fills grain 0
-    ASSERT_TRUE(r.m_assembler.consume(0, part).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, part).ok());
     const auto grain3 = pattern(kGrainBytes, std::byte{5});
     // Grains 1 and 2 are skipped entirely; grain 0 is only partially real.
-    ASSERT_TRUE(r.m_assembler.consume(3 * kGrainBytes, grain3).hasValue());
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(3 * kGrainBytes, grain3).ok());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 4u);
     std::vector<std::byte> expectedGrain0 = part;
@@ -256,9 +256,9 @@ TEST(GrainAssemblerTest, DenseModeFillsTrailingGapOnFinish)
 {
     DenseRecordingAssembler r(3 * kGrainBytes);
     const auto grain0 = pattern(kGrainBytes, std::byte{2});
-    ASSERT_TRUE(r.m_assembler.consume(0, grain0).hasValue());
+    ASSERT_TRUE(r.m_assembler.consume(0, grain0).ok());
     // Nothing ever written for grains 1/2: finish() must still emit them.
-    ASSERT_TRUE(r.m_assembler.finish().hasValue());
+    ASSERT_TRUE(r.m_assembler.finish().ok());
 
     ASSERT_EQ(r.m_grains.size(), 3u);
     EXPECT_EQ(r.m_grains[0].data, grain0);
@@ -274,12 +274,12 @@ TEST(GrainAssemblerTest, DenseModeAllGrainsWrittenMatchesSparseModeExactly)
     RecordingAssembler sparse;
     const auto grain0 = pattern(kGrainBytes, std::byte{1});
     const auto grain1 = pattern(kGrainBytes, std::byte{2});
-    ASSERT_TRUE(dense.m_assembler.consume(0, grain0).hasValue());
-    ASSERT_TRUE(dense.m_assembler.consume(kGrainBytes, grain1).hasValue());
-    ASSERT_TRUE(dense.m_assembler.finish().hasValue());
-    ASSERT_TRUE(sparse.m_assembler.consume(0, grain0).hasValue());
-    ASSERT_TRUE(sparse.m_assembler.consume(kGrainBytes, grain1).hasValue());
-    ASSERT_TRUE(sparse.m_assembler.finish().hasValue());
+    ASSERT_TRUE(dense.m_assembler.consume(0, grain0).ok());
+    ASSERT_TRUE(dense.m_assembler.consume(kGrainBytes, grain1).ok());
+    ASSERT_TRUE(dense.m_assembler.finish().ok());
+    ASSERT_TRUE(sparse.m_assembler.consume(0, grain0).ok());
+    ASSERT_TRUE(sparse.m_assembler.consume(kGrainBytes, grain1).ok());
+    ASSERT_TRUE(sparse.m_assembler.finish().ok());
 
     ASSERT_EQ(dense.m_grains.size(), sparse.m_grains.size());
     for (std::size_t i = 0; i < dense.m_grains.size(); ++i) {
@@ -291,14 +291,14 @@ TEST(GrainAssemblerTest, DenseModeAllGrainsWrittenMatchesSparseModeExactly)
 TEST(GrainAssemblerTest, SinkFailurePropagates)
 {
     int calls = 0;
-    GrainAssembler assembler(kGrainBytes, [&](std::uint64_t, std::span<const std::byte>) -> Result<void> {
+    GrainAssembler assembler(kGrainBytes, [&](std::uint64_t, std::span<const std::byte>) -> Error {
         ++calls;
         return VSphereSoap::Error(ErrorCode::IoError, "simulated sink failure");
     });
     const auto data = pattern(kGrainBytes, std::byte{1});
     auto result = assembler.consume(0, data);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), ErrorCode::IoError);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), ErrorCode::IoError);
     EXPECT_EQ(calls, 1);
 }
 

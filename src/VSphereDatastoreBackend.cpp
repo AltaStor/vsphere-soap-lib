@@ -138,7 +138,7 @@ public:
     // Blocks under backpressure; returns an error immediately (without blocking forever) if the upload
     // thread has already given up.
     //
-    Result<void> pushChunk(std::vector<std::byte> chunk)
+    Error pushChunk(std::vector<std::byte> chunk)
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_cv.wait(lock, [&] { return m_queue.size() < kMaxQueuedChunks || m_uploadThreadDone; });
@@ -174,7 +174,7 @@ public:
 
     // The encoder's sink: appends to httpChunkBuffer, flushing it to the queue once it reaches
     // the batching target.
-    Result<void> onEncoderBytes(std::span<const std::byte> bytes)
+    Error onEncoderBytes(std::span<const std::byte> bytes)
     {
         m_httpChunkBuffer.insert(m_httpChunkBuffer.end(), bytes.begin(), bytes.end());
         if (m_httpChunkBuffer.size() >= kTargetHttpChunkBytes) {
@@ -289,7 +289,7 @@ Result<std::unique_ptr<VSphereDatastoreBackend>> VSphereDatastoreBackend::open(V
     impl->m_perOperationTimeout = params.perOperationTimeout;
     impl->m_sparse = params.compressGrains;
 
-    auto sink = [rawImplForSink = impl.get()](std::span<const std::byte> bytes) -> Result<void> {
+    auto sink = [rawImplForSink = impl.get()](std::span<const std::byte> bytes) -> Error {
         return rawImplForSink->onEncoderBytes(bytes);
     };
     auto encoderResult = StreamOptimizedVmdkEncoder::create(std::move(sink), params.virtualSizeBytes,
@@ -315,7 +315,7 @@ Result<std::unique_ptr<VSphereDatastoreBackend>> VSphereDatastoreBackend::open(V
     //
     impl->m_grainAssembler.emplace(
         impl->m_grainSizeBytes,
-        [rawImplForGrains = impl.get()](std::uint64_t grainOffset, std::span<const std::byte> grainData) -> Result<void> {
+        [rawImplForGrains = impl.get()](std::uint64_t grainOffset, std::span<const std::byte> grainData) -> Error {
             if (rawImplForGrains->m_sparse && !rawImplForGrains->m_forceZeroGrain &&
                 std::all_of(grainData.begin(), grainData.end(), [](std::byte b) { return b == std::byte{0}; })) {
                 return {};
@@ -340,8 +340,9 @@ Result<std::unique_ptr<VSphereDatastoreBackend>> VSphereDatastoreBackend::open(V
     // a batching decision, just a "don't let the pipe look idle" one.
     //
     if (!impl->m_httpChunkBuffer.empty()) {
-        if (auto result = impl->pushChunk(std::exchange(impl->m_httpChunkBuffer, std::vector<std::byte>{})); !result) {
-            return std::move(result).error();
+        if (auto result = impl->pushChunk(std::exchange(impl->m_httpChunkBuffer, std::vector<std::byte>{}));
+            !result.ok()) {
+            return result;
         }
     }
 
@@ -392,8 +393,8 @@ Result<std::uint64_t> VSphereDatastoreBackend::writeAt(std::uint64_t offset, std
                                                        ") exceeds virtualSize " +
                                                        std::to_string(m_impl->m_virtualSizeBytes));
     }
-    if (auto result = m_impl->m_grainAssembler->consume(offset, in); !result) {
-        return std::move(result).error();
+    if (auto result = m_impl->m_grainAssembler->consume(offset, in); !result.ok()) {
+        return result;
     }
     return in.size();
 }
@@ -401,7 +402,7 @@ Result<std::uint64_t> VSphereDatastoreBackend::writeAt(std::uint64_t offset, std
 std::uint64_t VSphereDatastoreBackend::virtualSize() const noexcept { return m_impl->m_virtualSizeBytes; }
 std::uint64_t VSphereDatastoreBackend::sectorSize() const noexcept { return StreamOptimizedVmdkEncoder::kSectorSizeBytes; }
 
-Result<void> VSphereDatastoreBackend::keepAliveIfIdle(std::uint64_t knownFinalUpTo)
+Error VSphereDatastoreBackend::keepAliveIfIdle(std::uint64_t knownFinalUpTo)
 {
     if (m_impl->m_flushed || !m_impl->m_sparse ||
         std::chrono::steady_clock::now() - m_impl->m_lastPushAt < kIdleKeepAliveAfter) {
@@ -426,9 +427,9 @@ Result<void> VSphereDatastoreBackend::keepAliveIfIdle(std::uint64_t knownFinalUp
                      kIdleKeepAliveAfter.count(), start);
     const std::vector<std::byte> zeroGrain(grain, std::byte{0});
     m_impl->m_forceZeroGrain = true;
-    Result<void> consumed = m_impl->m_grainAssembler->consume(start, zeroGrain);
+    Error consumed = m_impl->m_grainAssembler->consume(start, zeroGrain);
     m_impl->m_forceZeroGrain = false;
-    if (!consumed) {
+    if (!consumed.ok()) {
         return consumed;
     }
     if (m_impl->m_httpChunkBuffer.empty()) {
@@ -437,17 +438,17 @@ Result<void> VSphereDatastoreBackend::keepAliveIfIdle(std::uint64_t knownFinalUp
     return m_impl->pushChunk(std::exchange(m_impl->m_httpChunkBuffer, std::vector<std::byte>{}));
 }
 
-Result<void> VSphereDatastoreBackend::flush()
+Error VSphereDatastoreBackend::flush()
 {
     if (m_impl->m_flushed) {
         return {};
     }
     m_impl->m_flushed = true;
 
-    Result<void> pendingResult = m_impl->m_grainAssembler->finish();
-    Result<void> finishResult = m_impl->m_encoder->finish();
-    Result<void> tailResult =
-        m_impl->m_httpChunkBuffer.empty() ? Result<void>{} : m_impl->pushChunk(std::move(m_impl->m_httpChunkBuffer));
+    Error pendingResult = m_impl->m_grainAssembler->finish();
+    Error finishResult = m_impl->m_encoder->finish();
+    Error tailResult =
+        m_impl->m_httpChunkBuffer.empty() ? Error{} : m_impl->pushChunk(std::move(m_impl->m_httpChunkBuffer));
 
     {
         std::lock_guard<std::mutex> lock(m_impl->m_mutex);
@@ -458,13 +459,13 @@ Result<void> VSphereDatastoreBackend::flush()
         m_impl->m_uploadThread.join();
     }
 
-    if (!pendingResult) {
+    if (!pendingResult.ok()) {
         return pendingResult;
     }
-    if (!finishResult) {
+    if (!finishResult.ok()) {
         return finishResult;
     }
-    if (!tailResult) {
+    if (!tailResult.ok()) {
         return tailResult;
     }
     if (!m_impl->m_uploadResult) {

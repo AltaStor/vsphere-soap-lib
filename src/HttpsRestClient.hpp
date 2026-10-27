@@ -95,7 +95,7 @@ public:
     HttpsRestClient& operator=(HttpsRestClient&&) = delete;
 
     /// Does not throw; fails with `ErrorCode::IoError` on DNS/TCP/TLS/HTTP transport failure.
-    [[nodiscard]] Result<HttpResponse> request(HttpMethod method, const std::string& target,
+    Result<HttpResponse> request(HttpMethod method, const std::string& target,
                                                 const std::vector<HttpHeader>& headers,
                                                 std::string body = {}) const;
 
@@ -110,7 +110,7 @@ public:
     /// Fails with `ErrorCode::IoError` if `localFilePath` can't be opened, in addition to `request`'s
     /// own failure modes.
     ///
-    [[nodiscard]] Result<HttpResponse> requestPutFile(const std::string& target, const std::vector<HttpHeader>& headers,
+    Result<HttpResponse> requestPutFile(const std::string& target, const std::vector<HttpHeader>& headers,
                                                         const std::string& localFilePath,
                                                         std::chrono::seconds timeout) const;
 
@@ -136,7 +136,7 @@ public:
     /// a slow `producer` call itself is not bounded by it (the producer's own caller is expected to
     /// apply whatever timeout makes sense for wherever its bytes come from).
     ///
-    [[nodiscard]] Result<HttpResponse> requestPutStream(const std::string& target,
+    Result<HttpResponse> requestPutStream(const std::string& target,
                                                           const std::vector<HttpHeader>& headers,
                                                           HttpBodyChunkProducer producer, std::chrono::seconds timeout,
                                                           std::optional<std::uint64_t> contentLength = std::nullopt) const;
@@ -144,14 +144,14 @@ public:
     /// `requestPutStream()`, but sent as POST; what an ESXi HttpNfcLease *import* device URL needs for
     /// a disk: POST streams into the disk ImportVApp already created (keeping its thin/thick
     /// provisioning), while PUT replaces that file outright and loses it.
-    [[nodiscard]] Result<HttpResponse> requestPostStream(const std::string& target,
+    Result<HttpResponse> requestPostStream(const std::string& target,
                                                            const std::vector<HttpHeader>& headers,
                                                            HttpBodyChunkProducer producer, std::chrono::seconds timeout,
                                                            std::optional<std::uint64_t> contentLength = std::nullopt) const;
 
 private:
     /// Shared body of `requestPutStream()`/`requestPostStream()`.
-    [[nodiscard]] Result<HttpResponse> requestStream(HttpMethod method, const std::string& target,
+    Result<HttpResponse> requestStream(HttpMethod method, const std::string& target,
                                                        const std::vector<HttpHeader>& headers,
                                                        HttpBodyChunkProducer producer, std::chrono::seconds timeout,
                                                        std::optional<std::uint64_t> contentLength) const;
@@ -160,21 +160,21 @@ private:
 
     /// Establishes a fresh TCP+TLS connection (DNS resolve, connect, handshake, and thumbprint check if
     /// pinned).
-    [[nodiscard]] Result<std::unique_ptr<Connection>> connect() const;
+    Result<std::unique_ptr<Connection>> connect() const;
 
     /// Writes `req` and reads one response over an already-connected `conn`, without shutting it down
     /// afterwards (left open for reuse).
-    [[nodiscard]] Result<HttpResponse> requestOnce(Connection& conn, HttpMethod method, const std::string& target,
+    Result<HttpResponse> requestOnce(Connection& conn, HttpMethod method, const std::string& target,
                                                     const std::vector<HttpHeader>& headers, std::string body) const;
 
     /// `requestOnce`'s file-streaming sibling, backing `requestPutFile()`.
-    [[nodiscard]] Result<HttpResponse> requestOnceFile(Connection& conn, const std::string& target,
+    Result<HttpResponse> requestOnceFile(Connection& conn, const std::string& target,
                                                         const std::vector<HttpHeader>& headers,
                                                         const std::string& localFilePath,
                                                         std::chrono::seconds timeout) const;
 
     /// `requestOnceFile`'s streaming-producer sibling, backing `requestPutStream()`.
-    [[nodiscard]] Result<HttpResponse> requestOnceStream(Connection& conn, HttpMethod method, const std::string& target,
+    Result<HttpResponse> requestOnceStream(Connection& conn, HttpMethod method, const std::string& target,
                                                           const std::vector<HttpHeader>& headers,
                                                           const HttpBodyChunkProducer& producer,
                                                           std::chrono::seconds timeout,

@@ -78,7 +78,7 @@ Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, cons
                                  result.value().unitNumber};
 }
 
-Result<void> eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
+Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
 {
     Detail::VmLocator locator;
     if (vm.moref) {
@@ -119,9 +119,9 @@ Result<void> eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
 
     for (const auto& disk : vmInfoResult.value().disks) {
         if (auto zeroed = Detail::eagerZeroVirtualDisk(*session, disk.rawFileName, datacenterResult.value());
-            !zeroed) {
+            !zeroed.ok()) {
             return Error(ErrorCode::IoError,
-                         "failed to eager-zero disk '" + disk.rawFileName + "': " + zeroed.error().message());
+                         "failed to eager-zero disk '" + disk.rawFileName + "': " + zeroed.message());
         }
     }
     return {};

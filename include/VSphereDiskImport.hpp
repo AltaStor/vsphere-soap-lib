@@ -79,7 +79,7 @@ struct VSphereAttachResult {
 /// a human to finish the job manually without re-uploading, since re-running the upload is far more
 /// expensive than one more SOAP call.
 ///
-[[nodiscard]] VSphereSoap::Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params,
+VSphereSoap::Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params,
                                                                               const VSphereAttachSpec& spec);
 
 /// Forces every disk currently attached to `vm` eager-zeroed
@@ -97,6 +97,6 @@ struct VSphereAttachResult {
 /// when every disk currently on `vm` genuinely wants "eagerZeroedThick".
 /// Fails with `ErrorCode::IoError` on any connection/SOAP failure.
 ///
-[[nodiscard]] VSphereSoap::Result<void> eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm);
+VSphereSoap::Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm);
 
 } // namespace VSphereSoap

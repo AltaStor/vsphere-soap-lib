@@ -20,16 +20,14 @@
 #include <span>
 #include <vector>
 
-#include "Result.hpp"
+#include "Error.hpp"
 
 namespace VSphereSoap::Detail {
-
-using VSphereSoap::Result;
 
 /// Called once per completed, exactly-grain-sized, grain-aligned grain.
 /// `grainData` is only valid for the duration of the call (GrainAssembler reuses its internal buffer for
 /// the next grain immediately after).
-using GrainSink = std::function<Result<void>(std::uint64_t offset, std::span<const std::byte> grainData)>;
+using GrainSink = std::function<Error(std::uint64_t offset, std::span<const std::byte> grainData)>;
 
 /// See this header's own top comment.
 /// Not thread-safe; not copyable/movable (owns an in-progress partial-grain buffer with no well-defined
@@ -66,7 +64,7 @@ public:
     /// comment): callers whose chunk size isn't a grain-size multiple must still never skip a *partial*
     /// grain, only whole ones.
     ///
-    [[nodiscard]] Result<void> consume(std::uint64_t offset, std::span<const std::byte> in);
+    Error consume(std::uint64_t offset, std::span<const std::byte> in);
 
     /// Zero-pads and emits any in-progress partial grain via `sink` (a no-op if `consume()` left nothing
     /// in progress); in dense mode, also zero-fills every remaining grain up to `*denseCapacityBytes`.
@@ -74,16 +72,16 @@ public:
     /// `StreamOptimizedVmdkEncoder::finish()`'s own one-shot contract, which this is meant to be paired
     /// with.
     ///
-    [[nodiscard]] Result<void> finish();
+    Error finish();
 
     /// The lowest offset the next `consume()` may start at: the end of the last one (0 before any).
-    [[nodiscard]] std::uint64_t nextExpectedOffset() const noexcept { return m_nextExpectedOffset; }
+    std::uint64_t nextExpectedOffset() const noexcept { return m_nextExpectedOffset; }
 
 private:
     /// Dense mode only: calls `sink` with a zero-filled grain for every grain boundary in
     /// `[m_nextGrainOffset, targetOffset)`, advancing `m_nextGrainOffset` past each one.
     /// A no-op in sparse mode.
-    [[nodiscard]] Result<void> zeroFillGrainsUpTo(std::uint64_t targetOffset);
+    Error zeroFillGrainsUpTo(std::uint64_t targetOffset);
 
     std::uint64_t m_grainSizeBytes;
     GrainSink m_sink;

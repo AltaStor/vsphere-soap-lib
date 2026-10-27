@@ -45,7 +45,7 @@ using VSphereSoap::Result;
 /// `writeGrain`'s output sink: raw bytes to append to the stream, already laid out (marker + deflated
 /// payload + padding, or table/footer sectors); the encoder never seeks backwards, so this can be handed
 /// straight to an HTTPS PUT's chunked body, a file, or anything else append-only.
-using VmdkByteSink = std::function<Result<void>(std::span<const std::byte>)>;
+using VmdkByteSink = std::function<Error(std::span<const std::byte>)>;
 
 /// One 64 KiB-by-default grain of *logical* (decompressed, guest-visible) disk content and where it
 /// belongs.
@@ -107,7 +107,7 @@ public:
     /// Kept for tests and computeDenseStreamSizeBytes() only; never hand its output to a third-party
     /// tool.
     ///
-    [[nodiscard]] static Result<StreamOptimizedVmdkEncoder> create(VmdkByteSink sink, std::uint64_t capacityBytes,
+    static Result<StreamOptimizedVmdkEncoder> create(VmdkByteSink sink, std::uint64_t capacityBytes,
                                                                        std::string descriptor,
                                                                        std::uint64_t grainSizeSectors =
                                                                            kDefaultGrainSizeSectors,
@@ -126,12 +126,12 @@ public:
     /// greater than the previous grain's offset, or `grain.data.size()` isn't exactly one grain;
     /// `ErrorCode::IoError` if `sink` fails.
     ///
-    [[nodiscard]] Result<void> writeGrain(const VmdkGrain& grain);
+    Error writeGrain(const VmdkGrain& grain);
 
     /// Emits the grain table(s), grain directory, footer (a corrected copy of the header with the real
     /// `gdOffset`/`overHead` now known), and the final EOS marker.
     /// After this returns (success or failure), no further calls are valid.
-    [[nodiscard]] Result<void> finish();
+    Error finish();
 
     /// The exact total byte size of a stream this encoder would produce for
     /// `capacityBytes`/`descriptor`/`grainSizeSectors` with `compressGrains = false` and *every* grain
@@ -146,7 +146,7 @@ public:
     /// by construction, at the cost of a cheap dry run (no real data touched, just counting).
     /// Same failure modes as `create()`.
     ///
-    [[nodiscard]] static Result<std::uint64_t> computeDenseStreamSizeBytes(std::uint64_t capacityBytes,
+    static Result<std::uint64_t> computeDenseStreamSizeBytes(std::uint64_t capacityBytes,
                                                                               const std::string& descriptor,
                                                                               std::uint64_t grainSizeSectors =
                                                                                   kDefaultGrainSizeSectors);

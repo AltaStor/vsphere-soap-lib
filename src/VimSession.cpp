@@ -57,9 +57,9 @@ Result<std::unique_ptr<VimSession>> VimSession::open(SoapClient& soap, std::stri
                                                           std::move(ovfManager), std::move(fileManager),
                                                           std::move(virtualDiskManager), std::move(viewManager)));
 
-    Result<void> loginResult = session->login();
-    if (!loginResult) {
-        return std::move(loginResult).error();
+    Error loginResult = session->login();
+    if (!loginResult.ok()) {
+        return loginResult;
     }
 
     return session;
@@ -81,7 +81,7 @@ VimSession::~VimSession()
     }
 }
 
-Result<void> VimSession::login()
+Error VimSession::login()
 {
     logger()->debug("logging in as {}", m_username);
     pugi::xml_document request = makeVimRequest("Login", m_sessionManager);
@@ -124,9 +124,9 @@ Result<pugi::xml_document> VimSession::call(const std::string& soapAction, const
     }
 
     logger()->info("session not authenticated for {}, re-logging in and retrying", soapAction);
-    Result<void> reloginResult = login();
-    if (!reloginResult) {
-        return std::move(reloginResult).error();
+    Error reloginResult = login();
+    if (!reloginResult.ok()) {
+        return reloginResult;
     }
     return m_soap.call(soapAction, requestNode);
 }

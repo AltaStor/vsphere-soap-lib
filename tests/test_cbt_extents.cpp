@@ -84,9 +84,9 @@ TEST(CbtQueryEligibilityTest, RejectsWhenChangeTrackingDisabled)
 
     CbtQuery cbt(*session.value());
     const auto result = cbt.checkEligible(vm, disk);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), VSphereSoap::ErrorCode::NotImplemented);
-    EXPECT_NE(result.error().message().find("not enabled"), std::string::npos);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), VSphereSoap::ErrorCode::NotImplemented);
+    EXPECT_NE(result.message().find("not enabled"), std::string::npos);
 }
 
 TEST(CbtQueryEligibilityTest, RejectsBelowHardwareVersionSeven)
@@ -104,9 +104,9 @@ TEST(CbtQueryEligibilityTest, RejectsBelowHardwareVersionSeven)
 
     CbtQuery cbt(*session.value());
     const auto result = cbt.checkEligible(vm, disk);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code(), VSphereSoap::ErrorCode::NotImplemented);
-    EXPECT_NE(result.error().message().find("vmx-07"), std::string::npos);
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.code(), VSphereSoap::ErrorCode::NotImplemented);
+    EXPECT_NE(result.message().find("vmx-07"), std::string::npos);
 }
 
 TEST(CbtQueryEligibilityTest, RejectsRdmBacking)
@@ -125,8 +125,8 @@ TEST(CbtQueryEligibilityTest, RejectsRdmBacking)
 
     CbtQuery cbt(*session.value());
     const auto result = cbt.checkEligible(vm, disk);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_NE(result.error().message().find("RDM"), std::string::npos);
+    ASSERT_FALSE(result.ok());
+    EXPECT_NE(result.message().find("RDM"), std::string::npos);
 }
 
 TEST(CbtQueryEligibilityTest, RejectsIndependentDiskMode)
@@ -144,8 +144,8 @@ TEST(CbtQueryEligibilityTest, RejectsIndependentDiskMode)
 
     CbtQuery cbt(*session.value());
     const auto result = cbt.checkEligible(vm, disk);
-    ASSERT_FALSE(result.hasValue());
-    EXPECT_NE(result.error().message().find("independent"), std::string::npos);
+    ASSERT_FALSE(result.ok());
+    EXPECT_NE(result.message().find("independent"), std::string::npos);
 }
 
 TEST(CbtQueryEligibilityTest, AcceptsEligibleDisk)
@@ -163,7 +163,7 @@ TEST(CbtQueryEligibilityTest, AcceptsEligibleDisk)
     ASSERT_TRUE(session.hasValue());
 
     CbtQuery cbt(*session.value());
-    EXPECT_TRUE(cbt.checkEligible(vm, disk).hasValue());
+    EXPECT_TRUE(cbt.checkEligible(vm, disk).ok());
 }
 
 TEST(CbtQueryLoopTest, LoopsUntilDiskCapacityIsCoveredAndPreservesExtentOrder)

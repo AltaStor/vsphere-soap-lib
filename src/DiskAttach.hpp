@@ -98,7 +98,7 @@ struct DiskAttachResult {
 /// the same "(VM '...' was still created)"-style messaging callers use for the equivalent lease-side
 /// failures.
 ///
-[[nodiscard]] Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttachSpec& spec);
+Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttachSpec& spec);
 
 /// The controller/unit resolution algorithm, exposed standalone (pure, no network) for unit testing over
 /// a hand-built `VimVmInfo` fixture.
@@ -116,7 +116,7 @@ struct ControllerChoice {
     ///
     std::optional<std::pair<std::string, int>> controllerToCreate;
 };
-[[nodiscard]] Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target,
+Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target,
                                                                   const ControllerSelector& selector);
 
 /// The "resolve controller/unit, create a controller if needed, attach" tail shared by
@@ -137,7 +137,7 @@ struct ControllerChoice {
 /// `attachUploadedDisk` does that fixup itself, earlier, at the file's pre-move location, and calls this
 /// with `false`; `finishFolderPutImport` (no move involved at all) leaves it at the default `true`.
 ///
-[[nodiscard]] Result<DiskAttachResult> attachDiskFile(VimSession& session, const MoRef& targetVm,
+Result<DiskAttachResult> attachDiskFile(VimSession& session, const MoRef& targetVm,
                                                         const std::string& datastorePath,
                                                         std::uint64_t capacityBytes,
                                                         const ControllerSelector& controller,
@@ -154,7 +154,7 @@ struct ControllerChoice {
 /// Fails with `ErrorCode::IoError` on SOAP failure: callers doing best-effort cleanup should log rather
 /// than propagate, the same discipline `unregisterVm` already uses internally.
 ///
-[[nodiscard]] Result<void> deleteDatastoreFile(VimSession& session, const std::string& name,
+Error deleteDatastoreFile(VimSession& session, const std::string& name,
                                                  const MoRef& datacenter);
 
 /// `FileManager.MakeDirectory` (with `createParentDirectories=true`): creates a directory at `name`
@@ -166,7 +166,7 @@ struct ControllerChoice {
 /// Fails with `ErrorCode::IoError` on SOAP failure, most commonly `NoPermission` for a session that
 /// genuinely lacks `Datastore.FileManagement` on `datacenter`.
 ///
-[[nodiscard]] Result<void> makeDatastoreDirectory(VimSession& session, const std::string& name,
+Error makeDatastoreDirectory(VimSession& session, const std::string& name,
                                                      const MoRef& datacenter);
 
 /// `VirtualDiskManager.EagerZeroVirtualDisk_Task`: forces every block of the virtual disk at `name` to
@@ -179,7 +179,7 @@ struct ControllerChoice {
 /// to eager-zeroed-thick) would end up invoking it internally.
 /// Fails with `ErrorCode::IoError` on SOAP failure.
 ///
-[[nodiscard]] Result<void> eagerZeroVirtualDisk(VimSession& session, const std::string& name,
+Error eagerZeroVirtualDisk(VimSession& session, const std::string& name,
                                                   const MoRef& datacenter);
 
 } // namespace VSphereSoap::Detail

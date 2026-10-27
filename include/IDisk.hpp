@@ -68,8 +68,8 @@ public:
     [[nodiscard]] virtual std::uint64_t sectorSize() const noexcept = 0;
 
     /// Flushes any buffered writes so they are durable (e.g. `fsync`).
-    /// Does not throw; failures are reported as `Result` holding an `Error` with `ErrorCode::IoError`.
-    virtual Result<void> flush() = 0;
+    /// Does not throw; failures are reported as an `Error` with `ErrorCode::IoError`, success as `ErrorCode::NoError`.
+    virtual Error flush() = 0;
 
     /// Reports whether the byte range `[offset, offset + length)` reads as all zero, without requiring
     /// the caller to allocate a buffer for the whole range.

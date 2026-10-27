@@ -150,7 +150,7 @@ public:
     /// URL or `virtualSizeBytes`/`grainSizeSectors` don't satisfy `StreamOptimizedVmdkEncoder::create`'s
     /// preconditions.
     ///
-    [[nodiscard]] static VSphereSoap::Result<std::unique_ptr<VSphereDatastoreBackend>>
+    static VSphereSoap::Result<std::unique_ptr<VSphereDatastoreBackend>>
     open(VSphereDatastoreBackendParams params);
 
     /// Aborts the upload (best-effort) if `flush()` was never called or failed, then joins
@@ -171,7 +171,7 @@ public:
     [[nodiscard]] std::uint64_t virtualSize() const noexcept override;
     [[nodiscard]] std::uint64_t sectorSize() const noexcept override;
 
-    VSphereSoap::Result<void> flush() override;
+    VSphereSoap::Error flush() override;
 
     /// Keeps the upload connection from going idle long enough for ESXi to drop it (it aborts
     /// an HttpNfcLease upload that has sent nothing for roughly a minute; confirmed live), which a long
@@ -185,7 +185,7 @@ public:
     /// A no-op otherwise, and in dense (uncompressed) mode, which never goes idle.
     /// Same thread rules as `writeAt()`.
     ///
-    VSphereSoap::Result<void> keepAliveIfIdle(std::uint64_t knownFinalUpTo);
+    VSphereSoap::Error keepAliveIfIdle(std::uint64_t knownFinalUpTo);
 
 private:
     class Impl;

@@ -39,15 +39,15 @@ public:
     /// CBT too): checked here, before ever calling `QueryChangedDiskAreas`, so `VmwareSoapDisk::open`
     /// can report *why* CBT isn't available instead of guessing from a fault.
     ///
-    [[nodiscard]] Result<void> checkEligible(const VimVmInfo& vmInfo, const VimDiskInfo& disk) const;
+    Error checkEligible(const VimVmInfo& vmInfo, const VimDiskInfo& disk) const;
 
     /// `changeId="*"`: the disk's full allocated-block map.
-    [[nodiscard]] Result<std::vector<Extent>> queryAllocatedExtents(const MoRef& vm, const MoRef& snapshot,
+    Result<std::vector<Extent>> queryAllocatedExtents(const MoRef& vm, const MoRef& snapshot,
                                                                         const std::string& deviceKey,
                                                                         std::uint64_t diskCapacityBytes);
 
     /// A real `changeId`: the disk's changed-block map relative to that baseline.
-    [[nodiscard]] Result<std::vector<Extent>> queryChangedExtents(const MoRef& vm, const MoRef& snapshot,
+    Result<std::vector<Extent>> queryChangedExtents(const MoRef& vm, const MoRef& snapshot,
                                                                       const std::string& deviceKey,
                                                                       const std::string& changeId,
                                                                       std::uint64_t diskCapacityBytes);
@@ -59,7 +59,7 @@ private:
     /// Fails with `ErrorCode::InvalidFormat` if a response doesn't advance past the offset it was asked
     /// for (would otherwise loop forever).
     ///
-    [[nodiscard]] Result<std::vector<Extent>> queryLoop(const MoRef& vm, const MoRef& snapshot,
+    Result<std::vector<Extent>> queryLoop(const MoRef& vm, const MoRef& snapshot,
                                                             const std::string& deviceKey, const std::string& changeId,
                                                             std::uint64_t diskCapacityBytes);
 
