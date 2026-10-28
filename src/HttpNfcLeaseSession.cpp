@@ -55,6 +55,19 @@ std::string scsiControllerResourceSubType(const std::string& shortName)
     return shortName; // Unrecognized: pass through verbatim rather than silently substituting a default.
 }
 
+/// OVF logical network every disconnected adapter's Ethernet Item points its `rasd:Connection` at.
+/// vCenter requires a Connection on every Ethernet Item and rejects an empty one (both confirmed live against
+/// vCenter 8.0.3), so a disconnected adapter still names a network and is kept off it by
+/// `rasd:AutomaticAllocation=false`, which CreateImportSpec turns into `startConnected=false`/`connected=false`.
+/// Can't collide with the "networkN" names VSphereImportSession generates.
+///
+constexpr const char* kDisconnectedOvfNetworkName = "disconnected";
+
+bool isConnected(const ImportNetworkAdapterSpec& nic)
+{
+    return !nic.ovfNetworkName.empty() && !nic.network.empty();
+}
+
 /// Builds a minimal single-VM, single-or-multi-disk OVF 1.0 descriptor, just enough for
 /// `OvfManager.CreateImportSpec` to turn into a `VirtualMachineImportSpec`.
 /// UTF-8 flows through unescaped except for the 5 XML metacharacters `xmlEscape` handles, so a non-ASCII
@@ -107,18 +120,16 @@ std::string buildOvfDescriptor(const ImportVmSpec& spec)
     // VSphereImportSession reuses one ovfNetworkName for every adapter mapped to the same real vCenter
     // network (the many-to-one case), so this dedupes by ovfNetworkName rather than emitting one entry
     // per adapter.
+    // Disconnected adapters all share the one kDisconnectedOvfNetworkName placeholder.
     //
     {
         std::vector<std::string> seenNetworkNames;
         for (const auto& nic : spec.networkAdapters) {
-            if (nic.ovfNetworkName.empty() || nic.network.empty()) {
-                continue; // disconnected adapters have no OVF network to declare
-            }
-            if (std::find(seenNetworkNames.begin(), seenNetworkNames.end(), nic.ovfNetworkName) !=
-                seenNetworkNames.end()) {
+            const std::string name = isConnected(nic) ? nic.ovfNetworkName : kDisconnectedOvfNetworkName;
+            if (std::find(seenNetworkNames.begin(), seenNetworkNames.end(), name) != seenNetworkNames.end()) {
                 continue;
             }
-            seenNetworkNames.push_back(nic.ovfNetworkName);
+            seenNetworkNames.push_back(name);
         }
         if (!seenNetworkNames.empty()) {
             ovf << "<NetworkSection><Info>Logical networks</Info>";
@@ -148,21 +159,6 @@ std::string buildOvfDescriptor(const ImportVmSpec& spec)
         ovf << "<vssd:VirtualSystemType>" << xmlEscape(spec.hardwareVersion) << "</vssd:VirtualSystemType>";
     }
     ovf << "</System>";
-
-    // vmw:Config: VMware's own OVF extension mechanism for VM-level settings with no standard OVF/CIM
-    // representation (firmware type, EFI Secure Boot); the same
-    // `<vmw:Config ovf:required="false" vmw:key="..." vmw:value="..."/>` shape real vSphere OVF exports
-    // of EFI VMs use.
-    // Not independently confirmed live against this codebase's own `CreateImportSpec`/`ImportVApp` path:
-    // see `ImportVmSpec::firmware`'s own doc comment.
-    //
-    if (spec.firmware == "efi") {
-        ovf << R"(<vmw:Config ovf:required="false" vmw:key="firmware" vmw:value="efi"/>)";
-        if (spec.secureBootEnabled.has_value()) {
-            ovf << R"(<vmw:Config ovf:required="false" vmw:key="bootOptions.efiSecureBootEnabled" vmw:value=")"
-                << (*spec.secureBootEnabled ? "true" : "false") << "\"/>";
-        }
-    }
 
     int instanceId = 1;
     const int cpuInstanceId = instanceId++;
@@ -211,17 +207,35 @@ std::string buildOvfDescriptor(const ImportVmSpec& spec)
         if (!nic.macAddress.empty()) {
             ovf << "<rasd:Address>" << xmlEscape(nic.macAddress) << "</rasd:Address>";
         }
+        // AutomaticAllocation is the OVF spelling of connectable.startConnected: false plus the placeholder
+        // Connection is how a disconnected adapter is expressed.
+        const bool connected = isConnected(nic);
         ovf << "<rasd:AddressOnParent>" << i << "</rasd:AddressOnParent>"
-            << "<rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>";
-        if (!nic.ovfNetworkName.empty() && !nic.network.empty()) {
-            ovf << "<rasd:Connection>" << xmlEscape(nic.ovfNetworkName) << "</rasd:Connection>";
-        }
+            << "<rasd:AutomaticAllocation>" << (connected ? "true" : "false") << "</rasd:AutomaticAllocation>"
+            << "<rasd:Connection>" << xmlEscape(connected ? nic.ovfNetworkName : kDisconnectedOvfNetworkName)
+            << "</rasd:Connection>";
         ovf << "<rasd:Description>Network adapter " << (i + 1) << "</rasd:Description>"
             << "<rasd:ElementName>Network adapter " << (i + 1) << "</rasd:ElementName>"
             << "<rasd:InstanceID>" << nicInstanceId << "</rasd:InstanceID>"
             << "<rasd:ResourceSubType>" << xmlEscape(nic.adapterType.empty() ? "VmxNet3" : nic.adapterType)
             << "</rasd:ResourceSubType>"
             << "<rasd:ResourceType>10</rasd:ResourceType></Item>";
+    }
+
+    // vmw:Config: VMware's own OVF extension mechanism for VM-level settings with no standard OVF/CIM
+    // representation (firmware type, EFI Secure Boot); the same
+    // `<vmw:Config ovf:required="false" vmw:key="..." vmw:value="..."/>` shape real vSphere OVF exports
+    // of EFI VMs use.
+    // Must come after every Item: the schema puts it last in VirtualHardwareSection, and CreateImportSpec
+    // rejects each Item that follows one with "Unsupported element 'Item'".
+    // Confirmed live against vCenter 8.0.3: here the import spec gets `firmware=efi` and the secure boot flag.
+    //
+    if (spec.firmware == "efi") {
+        ovf << R"(<vmw:Config ovf:required="false" vmw:key="firmware" vmw:value="efi"/>)";
+        if (spec.secureBootEnabled.has_value()) {
+            ovf << R"(<vmw:Config ovf:required="false" vmw:key="bootOptions.efiSecureBootEnabled" vmw:value=")"
+                << (*spec.secureBootEnabled ? "true" : "false") << "\"/>";
+        }
     }
 
     ovf << "</VirtualHardwareSection></VirtualSystem></Envelope>";
@@ -385,10 +399,11 @@ Result<pugi::xml_node> waitForLeaseReady(VimSession& session, const MoRef& lease
     }
 }
 
-} // namespace
-
-Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSession& session,
-                                                                            const ImportVmSpec& spec)
+/// OvfManager.CreateImportSpec for `spec`: the first half of `begin()` and all of `validate()`.
+/// Returns the whole response document, which holds the importSpec `begin()` hands to ImportVApp.
+/// An error CreateImportSpec reports in its result is a failure; its warnings are only logged.
+///
+Result<pugi::xml_document> createImportSpec(VimSession& session, const ImportVmSpec& spec)
 {
     if (spec.disks.empty()) {
         return Error(ErrorCode::InvalidArgument, "HttpNfcLeaseSession::begin: spec.disks is empty");
@@ -439,10 +454,20 @@ Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSessi
         // Deduped by ovfNetworkName the same way buildOvfDescriptor's own <NetworkSection> emission is,
         // so a many-to-one mapping doesn't produce contradictory duplicate entries.
         //
+        // The kDisconnectedOvfNetworkName placeholder is mapped too, to the first connected adapter's network:
+        // vCenter needs some real network for the backing, and the adapter stays off it (startConnected=false).
+        // With no connected adapter at all the placeholder stays unmapped and vCenter picks a host network
+        // itself; confirmed live that CreateImportSpec then only warns ("Invalid value 'disconnected' for
+        // element 'Connection'") rather than failing.
+        //
         {
             std::vector<std::string> seenNetworkNames;
+            const auto firstConnected = std::find_if(spec.networkAdapters.begin(), spec.networkAdapters.end(),
+                                                     [](const auto& nic) { return isConnected(nic); });
+            const bool anyDisconnected = std::any_of(spec.networkAdapters.begin(), spec.networkAdapters.end(),
+                                                     [](const auto& nic) { return !isConnected(nic); });
             for (const auto& nic : spec.networkAdapters) {
-                if (nic.ovfNetworkName.empty() || nic.network.empty()) {
+                if (!isConnected(nic)) {
                     continue;
                 }
                 if (std::find(seenNetworkNames.begin(), seenNetworkNames.end(), nic.ovfNetworkName) !=
@@ -455,6 +480,13 @@ Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSessi
                 pugi::xml_node networkNode = mapping.append_child("network");
                 networkNode.append_attribute("type") = nic.network.type.c_str();
                 networkNode.text() = nic.network.value.c_str();
+            }
+            if (anyDisconnected && firstConnected != spec.networkAdapters.end()) {
+                pugi::xml_node mapping = cisp.append_child("networkMapping");
+                mapping.append_child("name").text() = kDisconnectedOvfNetworkName;
+                pugi::xml_node networkNode = mapping.append_child("network");
+                networkNode.append_attribute("type") = firstConnected->network.type.c_str();
+                networkNode.text() = firstConnected->network.value.c_str();
             }
         }
         // Controls the destination disk's actual on-datastore shape: see
@@ -480,10 +512,34 @@ Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSessi
         return Error(ErrorCode::IoError,
                      "CreateImportSpec reported an error: " + (msg.empty() ? std::string("(no message)") : msg));
     }
-    const pugi::xml_node importSpecNode = cisReturn.child("importSpec");
-    if (!importSpecNode) {
+    for (pugi::xml_node warn = cisReturn.child("warning"); warn; warn = warn.next_sibling("warning")) {
+        logger()->info("CreateImportSpec warning: {}", warn.child("localizedMessage").text().as_string());
+    }
+    if (!cisReturn.child("importSpec")) {
         return Error(ErrorCode::InvalidFormat, "CreateImportSpec response missing importSpec");
     }
+    return std::move(cisResult).value();
+}
+
+} // namespace
+
+Error HttpNfcLeaseSession::validate(VimSession& session, const ImportVmSpec& spec)
+{
+    auto cisResult = createImportSpec(session, spec);
+    if (!cisResult) {
+        return std::move(cisResult).error();
+    }
+    return {};
+}
+
+Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSession& session,
+                                                                            const ImportVmSpec& spec)
+{
+    auto cisResult = createImportSpec(session, spec);
+    if (!cisResult) {
+        return std::move(cisResult).error();
+    }
+    const pugi::xml_node importSpecNode = returnval(soapBodyContent(cisResult.value())).child("importSpec");
 
     // --- ImportVApp ---
     pugi::xml_document importRequest = makeVimRequest("ImportVApp", spec.resourcePool);

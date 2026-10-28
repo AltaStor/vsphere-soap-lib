@@ -33,49 +33,10 @@ Vim::MoRef moRefOf(const char* type, const std::string& value)
     }
     return Vim::MoRef{type, value};
 }
-} // namespace
 
-class VSphereImportSession::Impl {
-public:
-    Impl(std::unique_ptr<Vim::IHttpTransport> transport, std::string host)
-        : m_transport(std::move(transport)), m_soap(*m_transport, std::move(host)) {}
-
-    std::unique_ptr<Vim::IHttpTransport> m_transport;
-    Vim::SoapClient m_soap;
-    std::unique_ptr<Vim::VimSession> m_session;
-    std::unique_ptr<Detail::HttpNfcLeaseSession> m_lease;
-    std::string m_vmId;
-    std::vector<VSphereImportDeviceUrl> m_deviceUrls;
-};
-
-VSphereImportSession::VSphereImportSession(std::unique_ptr<Impl> impl) noexcept : m_impl(std::move(impl)) {}
-VSphereImportSession::~VSphereImportSession() = default;
-
-Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const ConnectParams& params,
-                                                                              const VSphereImportVmSpec& spec)
+// The public spec as the lease session takes it.
+Detail::ImportVmSpec toInternalSpec(const VSphereImportVmSpec& spec)
 {
-    if (spec.disks.empty()) {
-        return Error(ErrorCode::InvalidArgument, "VSphereImportSession::begin: spec.disks is empty");
-    }
-    if (spec.resourcePoolId.empty()) {
-        return Error(ErrorCode::InvalidArgument, "VSphereImportSession::begin: spec.resourcePoolId is required");
-    }
-
-    logger()->info("opening VIM session for HttpNfcLease import of '{}' on {}:{}", spec.vmName, params.host,
-                    params.port);
-    auto impl = std::make_unique<Impl>(
-        std::make_unique<Vim::HttpTransportAdapter>(params.host, params.port, params.verifyTlsCertificate,
-                                                          params.pinnedThumbprint),
-        params.host);
-
-    auto sessionResult = Vim::VimSession::open(impl->m_soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    impl->m_session = std::move(sessionResult).value();
-
     Detail::ImportVmSpec internalSpec;
     internalSpec.vmName = spec.vmName;
     internalSpec.memoryBytes = spec.memoryBytes;
@@ -123,8 +84,52 @@ Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const 
         }
         internalSpec.networkAdapters.push_back(std::move(internalNic));
     }
+    return internalSpec;
+}
+} // namespace
 
-    auto leaseResult = Detail::HttpNfcLeaseSession::begin(*impl->m_session, internalSpec);
+class VSphereImportSession::Impl {
+public:
+    Impl(std::unique_ptr<Vim::IHttpTransport> transport, std::string host)
+        : m_transport(std::move(transport)), m_soap(*m_transport, std::move(host)) {}
+
+    std::unique_ptr<Vim::IHttpTransport> m_transport;
+    Vim::SoapClient m_soap;
+    std::unique_ptr<Vim::VimSession> m_session;
+    std::unique_ptr<Detail::HttpNfcLeaseSession> m_lease;
+    std::string m_vmId;
+    std::vector<VSphereImportDeviceUrl> m_deviceUrls;
+};
+
+VSphereImportSession::VSphereImportSession(std::unique_ptr<Impl> impl) noexcept : m_impl(std::move(impl)) {}
+VSphereImportSession::~VSphereImportSession() = default;
+
+Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const ConnectParams& params,
+                                                                              const VSphereImportVmSpec& spec)
+{
+    if (spec.disks.empty()) {
+        return Error(ErrorCode::InvalidArgument, "VSphereImportSession::begin: spec.disks is empty");
+    }
+    if (spec.resourcePoolId.empty()) {
+        return Error(ErrorCode::InvalidArgument, "VSphereImportSession::begin: spec.resourcePoolId is required");
+    }
+
+    logger()->info("opening VIM session for HttpNfcLease import of '{}' on {}:{}", spec.vmName, params.host,
+                    params.port);
+    auto impl = std::make_unique<Impl>(
+        std::make_unique<Vim::HttpTransportAdapter>(params.host, params.port, params.verifyTlsCertificate,
+                                                          params.pinnedThumbprint),
+        params.host);
+
+    auto sessionResult = Vim::VimSession::open(impl->m_soap, params.username, params.password);
+    if (!sessionResult) {
+        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
+                        sessionResult.error().toString());
+        return std::move(sessionResult).error();
+    }
+    impl->m_session = std::move(sessionResult).value();
+
+    auto leaseResult = Detail::HttpNfcLeaseSession::begin(*impl->m_session, toInternalSpec(spec));
     if (!leaseResult) {
         logger()->warn("HttpNfcLeaseSession::begin for '{}' failed: {}", spec.vmName,
                         leaseResult.error().toString());
@@ -140,6 +145,24 @@ Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const 
     logger()->info("HttpNfcLease import ready: VM '{}' -> {} ({} device URL(s))", spec.vmName, impl->m_vmId,
                     impl->m_deviceUrls.size());
     return std::unique_ptr<VSphereImportSession>(new VSphereImportSession(std::move(impl)));
+}
+
+Error VSphereImportSession::validate(const ConnectParams& params, const VSphereImportVmSpec& spec)
+{
+    if (spec.disks.empty()) {
+        return Error(ErrorCode::InvalidArgument, "VSphereImportSession::validate: spec.disks is empty");
+    }
+    if (spec.resourcePoolId.empty()) {
+        return Error(ErrorCode::InvalidArgument, "VSphereImportSession::validate: spec.resourcePoolId is required");
+    }
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+                                        params.pinnedThumbprint);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
+    if (!sessionResult) {
+        return std::move(sessionResult).error();
+    }
+    return Detail::HttpNfcLeaseSession::validate(*sessionResult.value(), toInternalSpec(spec));
 }
 
 const std::string& VSphereImportSession::vmId() const noexcept { return m_impl->m_vmId; }

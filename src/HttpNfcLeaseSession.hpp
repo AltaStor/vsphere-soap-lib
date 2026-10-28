@@ -66,8 +66,9 @@ struct ImportNetworkAdapterSpec {
     /// Never shown to a user; caller-generated (`VSphereImportSession` numbers them).
     std::string ovfNetworkName;
     /// The real vCenter network this adapter connects to.
-    /// Empty means disconnected: the OVF Ethernet Item is still created (so the guest sees a NIC) but
-    /// with no `rasd:Connection`/`networkMapping` entry at all.
+    /// Empty means disconnected: the OVF Ethernet Item is still created in the same position, with
+    /// `rasd:AutomaticAllocation=false` and a placeholder `rasd:Connection` (vCenter requires one), so
+    /// the imported adapter has `startConnected=false`.
     MoRef network;
     /// `rasd:ResourceSubType`, e.g. "VmxNet3" (the default every caller of this struct used before it
     /// existed) or "E1000e".
@@ -117,7 +118,7 @@ struct ImportVmSpec {
     /// `VirtualMachineConfigSpec.firmware` wire value: "bios" (default, matches every caller of this
     /// struct before this field existed; and vCenter's own default for a plain OVF import) or "efi".
     /// Applied via the `vmw:Config` OVF extension mechanism (`vmw:key="firmware"`): see
-    /// `buildOvfDescriptor`'s own comment; not independently confirmed live.
+    /// `buildOvfDescriptor`'s own comment; confirmed live against vCenter 8.0.3.
     ///
     std::string firmware;
     /// `VirtualMachineBootOptions.efiSecureBootEnabled`, only meaningful when `firmware == "efi"`.
@@ -189,6 +190,11 @@ public:
     ///
     static Result<std::unique_ptr<HttpNfcLeaseSession>> begin(VimSession& session,
                                                                                const ImportVmSpec& spec);
+
+    /// Only the CreateImportSpec step of `begin()`, for a dry run: the target checks the same OVF descriptor
+    /// and creates nothing.
+    /// Fails exactly as `begin()` would at that step.
+    static Error validate(VimSession& session, const ImportVmSpec& spec);
 
     /// Aborts the lease if `complete()` was never called successfully (best-effort, matching
     /// `SnapshotScope`'s destructor discipline); stops and joins the keepalive thread first if still

@@ -124,6 +124,11 @@ public:
     static VSphereSoap::Result<std::unique_ptr<VSphereImportSession>>
     begin(const ConnectParams& params, const VSphereImportVmSpec& spec);
 
+    /// Dry run of `begin()`: connects, logs in and has the target check the VM's OVF descriptor and placement
+    /// without creating anything.
+    /// Fails with the error `begin()` would fail with at that step.
+    static VSphereSoap::Error validate(const ConnectParams& params, const VSphereImportVmSpec& spec);
+
     /// Aborts the lease (best-effort) if `complete()` was never called successfully, then logs out: see
     /// `HttpNfcLeaseSession`'s own destructor doc comment.
     ~VSphereImportSession();

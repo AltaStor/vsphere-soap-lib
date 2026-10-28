@@ -157,7 +157,10 @@ TEST(NetworkMappingEnvelopeTest, ConnectedAdapterGetsNetworkSectionEthernetItemA
     EXPECT_FALSE(ethernetItem.child("rasd:Address")) << "no MAC was requested; rasd:Address must be absent";
 }
 
-TEST(NetworkMappingEnvelopeTest, DisconnectedAdapterHasNoConnectionAndNoMapping)
+// vCenter requires rasd:Connection on every Ethernet Item (confirmed live), so a disconnected adapter points
+// at a placeholder OVF network and is kept off it by AutomaticAllocation.
+// With nothing connected there is no real network to map the placeholder to, so it stays unmapped.
+TEST(NetworkMappingEnvelopeTest, DisconnectedAdapterHasPlaceholderConnectionAndNoMapping)
 {
     SoapFixture fixture;
     ImportVmSpec spec;
@@ -171,13 +174,115 @@ TEST(NetworkMappingEnvelopeTest, DisconnectedAdapterHasNoConnectionAndNoMapping)
 
     const BeginResult result = runBegin(fixture, spec);
     ASSERT_TRUE(result.cisp);
-    EXPECT_FALSE(result.cisp.child("networkMapping")) << "a disconnected adapter must not produce a networkMapping";
+    EXPECT_FALSE(result.cisp.child("networkMapping"))
+        << "with no connected adapter there is no real network to map the placeholder to";
 
-    EXPECT_FALSE(result.ovfDoc.select_node("//NetworkSection").node())
-        << "no NetworkSection should be emitted when nothing is connected";
+    pugi::xpath_node_set networkNodes = result.ovfDoc.select_nodes("//NetworkSection/Network");
+    ASSERT_EQ(networkNodes.size(), 1u);
+    EXPECT_EQ(std::string(networkNodes.first().node().attribute("ovf:name").as_string()), "disconnected");
     const pugi::xml_node ethernetItem = result.ovfDoc.select_node("//Item[rasd:ResourceType='10']").node();
     ASSERT_TRUE(ethernetItem) << "the Ethernet Item itself must still be created (the guest still gets a NIC)";
-    EXPECT_FALSE(ethernetItem.child("rasd:Connection"));
+    EXPECT_EQ(std::string(ethernetItem.child("rasd:Connection").text().as_string()), "disconnected");
+    EXPECT_EQ(std::string(ethernetItem.child("rasd:AutomaticAllocation").text().as_string()), "false");
+}
+
+TEST(NetworkMappingEnvelopeTest, DisconnectedAdapterNextToConnectedOneKeepsOrderAndMapsPlaceholder)
+{
+    SoapFixture fixture;
+    ImportVmSpec spec;
+    spec.vmName = "alta-import-test";
+    spec.disks.push_back(ImportDiskSpec{"disk0", 4ull * 1024 * 1024});
+    spec.resourcePool = MoRef{"ResourcePool", "resgroup-1"};
+    ImportNetworkAdapterSpec isolated;
+    isolated.sourceName = "Isolated";
+    spec.networkAdapters.push_back(isolated);
+    ImportNetworkAdapterSpec connected;
+    connected.sourceName = "VM Network";
+    connected.ovfNetworkName = "network0";
+    connected.network = MoRef{"Network", "network-52"};
+    spec.networkAdapters.push_back(connected);
+
+    const BeginResult result = runBegin(fixture, spec);
+    ASSERT_TRUE(result.cisp);
+
+    // network0 -> network-52 first, then the placeholder onto the same real network.
+    const pugi::xml_node first = result.cisp.child("networkMapping");
+    ASSERT_TRUE(first);
+    EXPECT_EQ(std::string(first.child("name").text().as_string()), "network0");
+    const pugi::xml_node second = first.next_sibling("networkMapping");
+    ASSERT_TRUE(second);
+    EXPECT_EQ(std::string(second.child("name").text().as_string()), "disconnected");
+    EXPECT_EQ(std::string(second.child("network").attribute("type").as_string()), "Network");
+    EXPECT_EQ(std::string(second.child("network").text().as_string()), "network-52");
+    EXPECT_FALSE(second.next_sibling("networkMapping"));
+
+    EXPECT_EQ(result.ovfDoc.select_nodes("//NetworkSection/Network").size(), 2u);
+
+    pugi::xpath_node_set ethernetItems = result.ovfDoc.select_nodes("//Item[rasd:ResourceType='10']");
+    ASSERT_EQ(ethernetItems.size(), 2u);
+    const pugi::xml_node nic0 = ethernetItems[0].node();
+    const pugi::xml_node nic1 = ethernetItems[1].node();
+    EXPECT_EQ(std::string(nic0.child("rasd:AddressOnParent").text().as_string()), "0");
+    EXPECT_EQ(std::string(nic0.child("rasd:Connection").text().as_string()), "disconnected");
+    EXPECT_EQ(std::string(nic0.child("rasd:AutomaticAllocation").text().as_string()), "false");
+    EXPECT_EQ(std::string(nic1.child("rasd:AddressOnParent").text().as_string()), "1");
+    EXPECT_EQ(std::string(nic1.child("rasd:Connection").text().as_string()), "network0");
+    EXPECT_EQ(std::string(nic1.child("rasd:AutomaticAllocation").text().as_string()), "true");
+}
+
+// vmw:Config must follow every Item inside VirtualHardwareSection: CreateImportSpec rejects each Item after one
+// with "Unsupported element 'Item'" (confirmed live against vCenter 8.0.3).
+TEST(NetworkMappingEnvelopeTest, EfiVmwConfigComesAfterEveryItem)
+{
+    SoapFixture fixture;
+    ImportVmSpec spec;
+    spec.vmName = "alta-import-test";
+    spec.disks.push_back(ImportDiskSpec{"disk0", 4ull * 1024 * 1024});
+    spec.resourcePool = MoRef{"ResourcePool", "resgroup-1"};
+    spec.firmware = "efi";
+    spec.secureBootEnabled = false;
+    ImportNetworkAdapterSpec nic;
+    nic.sourceName = "VM Network";
+    nic.ovfNetworkName = "network0";
+    nic.network = MoRef{"Network", "network-52"};
+    spec.networkAdapters.push_back(nic);
+
+    const BeginResult result = runBegin(fixture, spec);
+    const pugi::xml_node hardware = result.ovfDoc.select_node("//VirtualHardwareSection").node();
+    ASSERT_TRUE(hardware);
+
+    std::vector<std::string> configKeys;
+    bool seenConfig = false;
+    for (const pugi::xml_node child : hardware.children()) {
+        const std::string name = child.name();
+        if (name == "vmw:Config") {
+            seenConfig = true;
+            configKeys.push_back(child.attribute("vmw:key").as_string());
+        } else if (name == "Item") {
+            EXPECT_FALSE(seenConfig) << "an Item follows a vmw:Config element";
+        }
+    }
+    EXPECT_EQ(configKeys, (std::vector<std::string>{"firmware", "bootOptions.efiSecureBootEnabled"}));
+    EXPECT_STREQ(hardware.last_child().name(), "vmw:Config");
+    EXPECT_EQ(std::string(hardware.find_child_by_attribute("vmw:Config", "vmw:key", "firmware")
+                              .attribute("vmw:value")
+                              .as_string()),
+              "efi");
+}
+
+TEST(NetworkMappingEnvelopeTest, BiosSpecEmitsNoVmwConfig)
+{
+    SoapFixture fixture;
+    ImportVmSpec spec;
+    spec.vmName = "alta-import-test";
+    spec.disks.push_back(ImportDiskSpec{"disk0", 4ull * 1024 * 1024});
+    spec.resourcePool = MoRef{"ResourcePool", "resgroup-1"};
+    spec.firmware = "bios";
+    spec.secureBootEnabled = false; // ignored without EFI
+
+    const BeginResult result = runBegin(fixture, spec);
+    ASSERT_TRUE(result.ovfDoc.select_node("//VirtualHardwareSection").node());
+    EXPECT_TRUE(result.ovfDoc.select_nodes("//vmw:Config").empty());
 }
 
 TEST(NetworkMappingEnvelopeTest, StaticMacAddressIsCarriedAsRasdAddress)
@@ -446,6 +551,67 @@ TEST(NetworkMappingEnvelopeTest, NoNetworkAdaptersProducesNoNetworkSectionAndNoE
     EXPECT_FALSE(result.cisp.child("networkMapping"));
     EXPECT_FALSE(result.ovfDoc.select_node("//NetworkSection").node());
     EXPECT_FALSE(result.ovfDoc.select_node("//Item[rasd:ResourceType='10']").node());
+}
+
+bool sentSoapAction(const FakeHttpTransport& transport, const std::string& soapAction)
+{
+    for (const auto& request : transport.m_requests) {
+        for (const auto& h : request.headers) {
+            if (h.name == "SOAPAction" && h.value == soapAction) return true;
+        }
+    }
+    return false;
+}
+
+// The dry run sends the same CreateImportSpec as begin(), fails with the error the target reports in its result,
+// and never gets as far as ImportVApp.
+TEST(NetworkMappingEnvelopeTest, ValidateReportsCreateImportSpecErrorWithoutImporting)
+{
+    SoapFixture fixture;
+    scriptSessionBootstrap(fixture.transport);
+    fixture.transport.queueForSoapAction(
+        "urn:vim25/CreateImportSpec",
+        xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+                    "<soapenv:Body><CreateImportSpecResponse xmlns=\"urn:vim25\"><returnval>"
+                    "<error><localizedMessage>Line 1: Unsupported element 'Item'</localizedMessage></error>"
+                    "</returnval></CreateImportSpecResponse></soapenv:Body></soapenv:Envelope>"));
+    ImportVmSpec spec;
+    spec.vmName = "alta-import-test";
+    spec.disks.push_back(ImportDiskSpec{"disk0", 4ull * 1024 * 1024});
+    spec.resourcePool = MoRef{"ResourcePool", "resgroup-1"};
+    spec.firmware = "efi";
+
+    auto session = VimSession::open(fixture.soap, "user", "pass");
+    ASSERT_TRUE(session.hasValue());
+    const Error validated = HttpNfcLeaseSession::validate(*session.value(), spec);
+    ASSERT_FALSE(validated.ok());
+    EXPECT_NE(validated.toString().find("CreateImportSpec reported an error: Line 1: Unsupported element 'Item'"),
+              std::string::npos)
+        << validated.toString();
+    EXPECT_TRUE(sentSoapAction(fixture.transport, "urn:vim25/CreateImportSpec"));
+    EXPECT_FALSE(sentSoapAction(fixture.transport, "urn:vim25/ImportVApp"));
+}
+
+TEST(NetworkMappingEnvelopeTest, ValidateAcceptsASpecTheTargetAccepts)
+{
+    SoapFixture fixture;
+    scriptSessionBootstrap(fixture.transport);
+    fixture.transport.queueForSoapAction(
+        "urn:vim25/CreateImportSpec",
+        xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+                    "<soapenv:Body><CreateImportSpecResponse xmlns=\"urn:vim25\"><returnval>"
+                    "<importSpec xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
+                    "xsi:type=\"VirtualMachineImportSpec\"><configSpec><name>x</name></configSpec></importSpec>"
+                    "</returnval></CreateImportSpecResponse></soapenv:Body></soapenv:Envelope>"));
+    ImportVmSpec spec;
+    spec.vmName = "alta-import-test";
+    spec.disks.push_back(ImportDiskSpec{"disk0", 4ull * 1024 * 1024});
+    spec.resourcePool = MoRef{"ResourcePool", "resgroup-1"};
+
+    auto session = VimSession::open(fixture.soap, "user", "pass");
+    ASSERT_TRUE(session.hasValue());
+    EXPECT_TRUE(HttpNfcLeaseSession::validate(*session.value(), spec).ok());
+    EXPECT_FALSE(sentSoapAction(fixture.transport, "urn:vim25/ImportVApp"));
 }
 
 } // namespace VSphereSoap::Detail
