@@ -5,7 +5,7 @@
 
 #pragma once
 
-// Test double for VSphereSoap::Detail::IHttpTransport: returns scripted responses keyed by the request's
+// Test double for VSphereSoap::Vim::IHttpTransport: returns scripted responses keyed by the request's
 // SOAPAction header (for SOAP calls) or by exact target (for plain GETs, e.g. datastore reads/descriptor
 // fetches).
 // Each call pops the next scripted response for its key, except the last one queued for a key, which is
@@ -19,34 +19,34 @@
 #include <string>
 #include <vector>
 
-#include "IHttpTransport.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/IHttpTransport.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Test {
 
-class FakeHttpTransport final : public Detail::IHttpTransport {
+class FakeHttpTransport final : public Vim::IHttpTransport {
 public:
-    void queueForSoapAction(const std::string& soapAction, Detail::HttpResponse response)
+    void queueForSoapAction(const std::string& soapAction, Vim::HttpResponse response)
     {
         m_bySoapAction[soapAction].push_back(std::move(response));
     }
 
-    void queueForTarget(const std::string& target, Detail::HttpResponse response)
+    void queueForTarget(const std::string& target, Vim::HttpResponse response)
     {
         m_byTarget[target].push_back(std::move(response));
     }
 
     struct RecordedRequest {
-        Detail::HttpMethod method;
+        Vim::HttpMethod method;
         std::string target;
-        std::vector<Detail::HttpHeader> headers;
+        std::vector<Vim::HttpHeader> headers;
         std::string body;
     };
     std::vector<RecordedRequest> m_requests;
 
-    VSphereSoap::Result<Detail::HttpResponse> request(Detail::HttpMethod method,
+    VSphereSoap::Result<Vim::HttpResponse> request(Vim::HttpMethod method,
                                                                           const std::string& target,
-                                                                          const std::vector<Detail::HttpHeader>& headers,
+                                                                          const std::vector<Vim::HttpHeader>& headers,
                                                                           std::string body) override
     {
         m_requests.push_back({method, target, headers, body});
@@ -66,11 +66,11 @@ public:
                                      "FakeHttpTransport: no response scripted for target " + target);
     }
 
-    VSphereSoap::Result<Detail::HttpResponse> requestPutFile(
-        const std::string& target, const std::vector<Detail::HttpHeader>& headers, const std::string& localFilePath,
+    VSphereSoap::Result<Vim::HttpResponse> requestPutFile(
+        const std::string& target, const std::vector<Vim::HttpHeader>& headers, const std::string& localFilePath,
         std::chrono::seconds /*timeout*/) override
     {
-        m_requests.push_back({Detail::HttpMethod::Put, target, headers, "(file:" + localFilePath + ")"});
+        m_requests.push_back({Vim::HttpMethod::Put, target, headers, "(file:" + localFilePath + ")"});
         if (auto next = pop(m_byTarget, target)) {
             return *next;
         }
@@ -91,28 +91,28 @@ public:
     /// encoding can check this.
     std::vector<std::optional<std::uint64_t>> m_streamedContentLengths;
 
-    VSphereSoap::Result<Detail::HttpResponse> requestPutStream(
-        const std::string& target, const std::vector<Detail::HttpHeader>& headers,
-        Detail::HttpBodyChunkProducer producer, std::chrono::seconds /*timeout*/,
+    VSphereSoap::Result<Vim::HttpResponse> requestPutStream(
+        const std::string& target, const std::vector<Vim::HttpHeader>& headers,
+        Vim::HttpBodyChunkProducer producer, std::chrono::seconds /*timeout*/,
         std::optional<std::uint64_t> contentLength) override
     {
-        return stream(Detail::HttpMethod::Put, target, headers, std::move(producer), contentLength);
+        return stream(Vim::HttpMethod::Put, target, headers, std::move(producer), contentLength);
     }
 
-    VSphereSoap::Result<Detail::HttpResponse> requestPostStream(
-        const std::string& target, const std::vector<Detail::HttpHeader>& headers,
-        Detail::HttpBodyChunkProducer producer, std::chrono::seconds /*timeout*/,
+    VSphereSoap::Result<Vim::HttpResponse> requestPostStream(
+        const std::string& target, const std::vector<Vim::HttpHeader>& headers,
+        Vim::HttpBodyChunkProducer producer, std::chrono::seconds /*timeout*/,
         std::optional<std::uint64_t> contentLength) override
     {
-        return stream(Detail::HttpMethod::Post, target, headers, std::move(producer), contentLength);
+        return stream(Vim::HttpMethod::Post, target, headers, std::move(producer), contentLength);
     }
 
 private:
     // Shared body of requestPutStream()/requestPostStream(); the method is recorded in `m_requests` so
     // tests can tell which one a caller used.
-    VSphereSoap::Result<Detail::HttpResponse> stream(Detail::HttpMethod method, const std::string& target,
-                                                        const std::vector<Detail::HttpHeader>& headers,
-                                                        Detail::HttpBodyChunkProducer producer,
+    VSphereSoap::Result<Vim::HttpResponse> stream(Vim::HttpMethod method, const std::string& target,
+                                                        const std::vector<Vim::HttpHeader>& headers,
+                                                        Vim::HttpBodyChunkProducer producer,
                                                         std::optional<std::uint64_t> contentLength)
     {
         m_streamedContentLengths.push_back(contentLength);
@@ -136,22 +136,22 @@ private:
                                      "FakeHttpTransport: no response scripted for target " + target);
     }
 
-    static std::optional<Detail::HttpResponse> pop(std::map<std::string, std::deque<Detail::HttpResponse>>& table,
+    static std::optional<Vim::HttpResponse> pop(std::map<std::string, std::deque<Vim::HttpResponse>>& table,
                                                      const std::string& key)
     {
         auto it = table.find(key);
         if (it == table.end() || it->second.empty()) {
             return std::nullopt;
         }
-        Detail::HttpResponse response = it->second.front();
+        Vim::HttpResponse response = it->second.front();
         if (it->second.size() > 1) {
             it->second.pop_front(); // keep the last one queued as the sticky default.
         }
         return response;
     }
 
-    std::map<std::string, std::deque<Detail::HttpResponse>> m_bySoapAction;
-    std::map<std::string, std::deque<Detail::HttpResponse>> m_byTarget;
+    std::map<std::string, std::deque<Vim::HttpResponse>> m_bySoapAction;
+    std::map<std::string, std::deque<Vim::HttpResponse>> m_byTarget;
 };
 
 } // namespace VSphereSoap::Test

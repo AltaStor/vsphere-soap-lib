@@ -14,11 +14,13 @@
 #include <memory>
 #include <string>
 
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap::Detail {
+
+using namespace VSphereSoap::Vim;
 
 using VSphereSoap::Result;
 
@@ -66,7 +68,7 @@ public:
     SnapshotScope(SnapshotScope&&) = delete;
     SnapshotScope& operator=(SnapshotScope&&) = delete;
 
-    [[nodiscard]] const MoRef& snapshot() const noexcept { return m_snapshot; }
+    const MoRef& snapshot() const noexcept { return m_snapshot; }
 
 private:
     SnapshotScope(VimSession& session, MoRef vm, MoRef snapshot);

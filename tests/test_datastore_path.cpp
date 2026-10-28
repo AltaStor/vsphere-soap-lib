@@ -6,10 +6,12 @@
 #include <gtest/gtest.h>
 
 #include "DatastorePath.hpp"
-#include "VimInventory.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
 
 namespace VSphereSoap::Detail {
 namespace {
+
+using namespace VSphereSoap::Vim;
 
 TEST(ParseDatastorePathTest, ParsesBracketedDatastorePath)
 {

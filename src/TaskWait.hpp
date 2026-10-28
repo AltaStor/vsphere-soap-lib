@@ -9,11 +9,13 @@
 // the new disk-attach flow's several `_Task` operations (ReconfigVM_Task, MoveDatastoreFile_Task) don't
 // grow a third near-identical copy of the same RetrievePropertiesEx polling loop.
 
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap::Detail {
+
+using namespace VSphereSoap::Vim;
 
 using VSphereSoap::Result;
 

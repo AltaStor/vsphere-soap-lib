@@ -9,7 +9,7 @@
 
 #include "SoapLog.hpp"
 #include "TaskWait.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

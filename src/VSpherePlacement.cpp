@@ -3,19 +3,19 @@
 //
 // Name-based placement lookup for imported VMs
 
-#include "VSpherePlacement.hpp"
+#include "vsphere-soap/VSpherePlacement.hpp"
 
 #include <algorithm>
 #include <string_view>
 #include <vector>
 
-#include "HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "Placement.hpp"
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
-#include "VimInventory.hpp"
-#include "VimSession.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 
@@ -185,11 +185,11 @@ namespace VSphereSoap {
 
 Result<VSpherePlacement> resolvePlacement(const ConnectParams& params, const VSpherePlacementSpec& spec)
 {
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                            params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
+    Vim::SoapClient soap(transport, params.host);
 
-    auto session = Detail::VimSession::open(soap, params.username, params.password);
+    auto session = Vim::VimSession::open(soap, params.username, params.password);
     if (!session) {
         return std::move(session).error();
     }

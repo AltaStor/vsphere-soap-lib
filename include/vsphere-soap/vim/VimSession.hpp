@@ -12,11 +12,11 @@
 #include <memory>
 #include <string>
 
-#include "SoapClient.hpp"
-#include "VimTypes.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Result.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 using VSphereSoap::Result;
 
@@ -39,20 +39,20 @@ public:
     VimSession(VimSession&&) = delete;
     VimSession& operator=(VimSession&&) = delete;
 
-    [[nodiscard]] const MoRef& propertyCollector() const noexcept { return m_propertyCollector; }
-    [[nodiscard]] const MoRef& rootFolder() const noexcept { return m_rootFolder; }
-    [[nodiscard]] const MoRef& searchIndex() const noexcept { return m_searchIndex; }
+    const MoRef& propertyCollector() const noexcept { return m_propertyCollector; }
+    const MoRef& rootFolder() const noexcept { return m_rootFolder; }
+    const MoRef& searchIndex() const noexcept { return m_searchIndex; }
     /// `ServiceContent.ovfManager`: present on every real ESXi/vCenter, but not treated as a hard
     /// `open()` precondition the way root folder/property collector/search index/session manager are,
     /// since only the HttpNfcLease import path needs it; empty if the server somehow omitted it, which
     /// callers of that path should treat as a loud failure rather than this class guessing at
     /// a fallback.
     ///
-    [[nodiscard]] const MoRef& ovfManager() const noexcept { return m_ovfManager; }
+    const MoRef& ovfManager() const noexcept { return m_ovfManager; }
 
     /// `ServiceContent.fileManager`: same not-a-hard-precondition treatment as `ovfManager()` above;
     /// only the datastore-file-move step of the disk-attach flow needs it.
-    [[nodiscard]] const MoRef& fileManager() const noexcept { return m_fileManager; }
+    const MoRef& fileManager() const noexcept { return m_fileManager; }
 
     /// `ServiceContent.virtualDiskManager`; same not-a-hard-precondition treatment; only
     /// the eager-zeroed-thick post-import fixup (`EagerZeroVirtualDisk_Task`, see DiskAttach.cpp) needs
@@ -60,16 +60,16 @@ public:
     /// version for that specific provisioning type (confirmed live: a real vCenter accepted the request
     /// but the resulting disk was not actually eager-zeroed).
     ///
-    [[nodiscard]] const MoRef& virtualDiskManager() const noexcept { return m_virtualDiskManager; }
+    const MoRef& virtualDiskManager() const noexcept { return m_virtualDiskManager; }
 
     /// `ServiceContent.viewManager`: same not-a-hard-precondition treatment; only
     /// `VimInventory::listObjects()` (a ContainerView over the whole inventory) needs it.
-    [[nodiscard]] const MoRef& viewManager() const noexcept { return m_viewManager; }
+    const MoRef& viewManager() const noexcept { return m_viewManager; }
 
     /// Forwards to the underlying `SoapClient::host()`: see that accessor's doc comment.
     /// Exposed here so callers that only hold a `VimSession&` (e.g. `HttpNfcLeaseSession`) don't need
     /// their own `SoapClient&`.
-    [[nodiscard]] const std::string& soapHost() const noexcept { return m_soap.host(); }
+    const std::string& soapHost() const noexcept { return m_soap.host(); }
 
     /// Posts `requestNode` (see `SoapClient::call`) through this session. vSphere sessions expire
     /// server-side; if the call faults with `NotAuthenticated`, this re-`Login`s once and retries
@@ -98,4 +98,4 @@ private:
     bool m_loggedIn = false;
 };
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

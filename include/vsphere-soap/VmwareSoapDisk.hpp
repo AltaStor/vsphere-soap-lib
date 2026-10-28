@@ -8,14 +8,14 @@
 // The export side of vsphere-soap-lib: reads a powered-off VM's disk through vSphere Web Services (SOAP)
 // for the control plane and plain HTTPS datastore GET/Range requests for the data, with no VMware SDK.
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 
-#include "IDisk.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap {
 
@@ -34,10 +34,9 @@ struct ConnectParams {
     ///
     std::string pinnedThumbprint;
 
-    /// When true (the default), attempt to use Changed Block Tracking's allocated-block map so
-    /// `isZero()` can skip a thin disk's unallocated zero regions without reading them.
-    /// Never fails `open()` on its own when CBT turns out to be unavailable; it just falls back to
-    /// `IDisk::isZero()`'s base (read-and-compare) behavior; see `cbtActive()`/`cbtUnavailableReason()`.
+    /// When true (the default), the Changed Block Tracking allocated-block map lets `isZero()` skip a thin
+    /// disk's unallocated regions without reading them.
+    /// Unavailable CBT never fails `open()`; `isZero()` then just reports ranges as not zero.
     ///
     bool useCbt = true;
 
@@ -54,9 +53,9 @@ struct ConnectParams {
 /// Identifies which VM to read from.
 /// Exactly one member should be set; `open()` fails with `ErrorCode::InvalidArgument` if none are.
 struct VmLocator {
-    [[nodiscard]] static VmLocator byMoref(std::string moref);
-    [[nodiscard]] static VmLocator byUuid(std::string uuid);
-    [[nodiscard]] static VmLocator byInventoryPath(std::string path);
+    static VmLocator byMoref(std::string moref);
+    static VmLocator byUuid(std::string uuid);
+    static VmLocator byInventoryPath(std::string path);
 
     std::optional<std::string> moref;
     std::optional<std::string> uuid;
@@ -70,27 +69,21 @@ struct VmLocator {
 /// Exactly one member should be set.
 ///
 struct DiskSelector {
-    [[nodiscard]] static DiskSelector byKey(std::string key);
-    [[nodiscard]] static DiskSelector byDatastorePath(std::string path);
+    static DiskSelector byKey(std::string key);
+    static DiskSelector byDatastorePath(std::string path);
 
     std::optional<std::string> key;
     std::optional<std::string> datastorePath;
 };
 
-/// `IDisk` over a VMware virtual disk read via vSphere Web Services (SOAP) control plane and plain HTTPS
-/// datastore GET/Range data plane.
-/// Read-only in this phase (`writeAt`/`flush` fail/no-op accordingly) and powered-off-source-VMs-only
-/// (see `open()`'s precondition); there is no live guest-consistency story here for a transfer off
-/// a running VM.
+/// Read-only disk of a powered-off VM.
+/// The control plane is vSphere SOAP; data comes from ranged HTTPS GETs of the disk's flat extent file, so no
+/// VMDK container is parsed here.
 ///
-/// No VMDK sparse/COW parsing lives here: the datastore GET always targets the disk's flat/raw extent
-/// file, derived from `config.hardware.device`'s `backing.fileName` (falling back to reading the small
-/// VMDK descriptor's extent line if the derived "-flat.vmdk" name 404s, rather than assuming the naming
-/// convention blindly); see VmwareSoapDisk.cpp.
+/// It has the usual disk methods but no disk base class: a tool wraps it into its own disk interface.
+/// Not thread-safe: use an instance from one thread only.
 ///
-/// Not thread-safe: confine all calls, including construction/destruction, to a single thread.
-///
-class VmwareSoapDisk final : public VSphereSoap::IDisk {
+class VmwareSoapDisk final {
 public:
     /// Connects, logs in, resolves `vm`/`disk` to a datastore flat-extent path, and probes Range support
     /// (fails loudly (`ErrorCode::IoError`) if the server ignores the `Range` header rather than
@@ -115,37 +108,36 @@ public:
     open(const ConnectParams& params, const VmLocator& vm, const DiskSelector& disk);
 
     /// Removes the CBT baseline snapshot (if one was taken) and logs out, both best-effort.
-    ~VmwareSoapDisk() override;
+    ~VmwareSoapDisk();
 
     VmwareSoapDisk(const VmwareSoapDisk&) = delete;
     VmwareSoapDisk& operator=(const VmwareSoapDisk&) = delete;
     VmwareSoapDisk(VmwareSoapDisk&&) = delete;
     VmwareSoapDisk& operator=(VmwareSoapDisk&&) = delete;
 
-    VSphereSoap::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out) override;
+    /// Reads up to `out.size()` bytes at `offset`; the result is short only at the end of the disk.
+    /// Fails with `ErrorCode::IoError` when the datastore GET fails after its retries.
+    VSphereSoap::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out);
 
-    /// Always fails with `ErrorCode::NotImplemented`: this backend is read-only in this phase.
-    VSphereSoap::Result<std::uint64_t> writeAt(std::uint64_t offset, std::span<const std::byte> in) override;
+    /// Always fails with `ErrorCode::NotImplemented`: the disk is read-only.
+    VSphereSoap::Result<std::uint64_t> writeAt(std::uint64_t offset, std::span<const std::byte> in);
 
-    [[nodiscard]] std::uint64_t virtualSize() const noexcept override;
-    [[nodiscard]] std::uint64_t sectorSize() const noexcept override;
+    std::uint64_t virtualSize() const noexcept;
+    std::uint64_t sectorSize() const noexcept;
 
-    /// No-op: nothing is buffered here.
-    /// Always succeeds.
-    VSphereSoap::Error flush() override;
+    /// No-op that always succeeds: nothing is buffered.
+    VSphereSoap::Error flush();
 
-    /// Overridden per `IDisk`'s documented extension point: answers from the CBT allocated-block map
-    /// without touching the data region when one is active (`cbtActive()`); falls back to the base
-    /// `IDisk::isZero()` (read-and-compare) otherwise.
-    VSphereSoap::Result<bool> isZero(std::uint64_t offset, std::uint64_t length) override;
+    /// Whether `[offset, offset + length)` is provably all zero, answered from the CBT map without reading data.
+    /// Without CBT it is always false, so the caller reads the range once instead of twice.
+    VSphereSoap::Result<bool> isZero(std::uint64_t offset, std::uint64_t length);
 
-    /// True once `open()` successfully obtained a CBT allocated-block map for this disk (implies
-    /// `params.useCbt` was set and CBT was eligible/available).
-    [[nodiscard]] bool cbtActive() const noexcept;
+    /// True when `open()` obtained a CBT allocated-block map for this disk.
+    bool cbtActive() const noexcept;
 
-    /// Human-readable reason CBT isn't active, suitable for a one-time log line: empty when
-    /// `cbtActive()` is true, or when `params.useCbt` was false to begin with.
-    [[nodiscard]] const std::string& cbtUnavailableReason() const noexcept;
+    /// Why CBT is not active, for a one-time log line.
+    /// Empty when CBT is active or was not requested.
+    const std::string& cbtUnavailableReason() const noexcept;
 
 private:
     class Impl;

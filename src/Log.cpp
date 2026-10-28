@@ -3,7 +3,7 @@
 //
 // Diagnostics routing for the library's own log messages
 
-#include "Log.hpp"
+#include "vsphere-soap/Log.hpp"
 
 #include <atomic>
 #include <cstdio>

@@ -10,7 +10,7 @@
 #include <zlib.h>
 
 #include "StreamOptimizedVmdkEncoder.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 namespace {

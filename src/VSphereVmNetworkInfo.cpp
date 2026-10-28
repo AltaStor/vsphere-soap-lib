@@ -3,20 +3,20 @@
 //
 // vSphere VM network adapter query
 
-#include "VSphereVmNetworkInfo.hpp"
+#include "vsphere-soap/VSphereVmNetworkInfo.hpp"
 
 #include <algorithm>
 #include <chrono>
 
 #include "DiskAttach.hpp"
-#include "HttpTransportAdapter.hpp"
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
 #include "TaskWait.hpp"
-#include "VimInventory.hpp"
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
@@ -27,21 +27,21 @@ using VSphereSoap::Result;
 namespace {
 using Detail::logger;
 
-Result<Detail::VmLocator> toInternalLocator(const VmLocator& vm)
+Result<Vim::VmLocator> toInternalLocator(const VmLocator& vm)
 {
-    if (vm.moref) return Detail::VmLocator::byMoref(*vm.moref);
-    if (vm.uuid) return Detail::VmLocator::byUuid(*vm.uuid);
-    if (vm.inventoryPath) return Detail::VmLocator::byInventoryPath(*vm.inventoryPath);
+    if (vm.moref) return Vim::VmLocator::byMoref(*vm.moref);
+    if (vm.uuid) return Vim::VmLocator::byUuid(*vm.uuid);
+    if (vm.inventoryPath) return Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
     return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
 }
 
-const char* powerStateName(Detail::VimPowerState state)
+const char* powerStateName(Vim::VimPowerState state)
 {
     switch (state) {
-        case Detail::VimPowerState::PoweredOn: return "poweredOn";
-        case Detail::VimPowerState::PoweredOff: return "poweredOff";
-        case Detail::VimPowerState::Suspended: return "suspended";
-        case Detail::VimPowerState::Unknown: return "unknown";
+        case Vim::VimPowerState::PoweredOn: return "poweredOn";
+        case Vim::VimPowerState::PoweredOff: return "poweredOff";
+        case Vim::VimPowerState::Suspended: return "suspended";
+        case Vim::VimPowerState::Unknown: return "unknown";
     }
     return "unknown";
 }
@@ -50,23 +50,23 @@ const char* powerStateName(Detail::VimPowerState state)
 Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const ConnectParams& params,
                                                                          const VmLocator& vm)
 {
-    Detail::VmLocator internalLocator;
+    Vim::VmLocator internalLocator;
     if (vm.moref) {
-        internalLocator = Detail::VmLocator::byMoref(*vm.moref);
+        internalLocator = Vim::VmLocator::byMoref(*vm.moref);
     } else if (vm.uuid) {
-        internalLocator = Detail::VmLocator::byUuid(*vm.uuid);
+        internalLocator = Vim::VmLocator::byUuid(*vm.uuid);
     } else if (vm.inventoryPath) {
-        internalLocator = Detail::VmLocator::byInventoryPath(*vm.inventoryPath);
+        internalLocator = Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
     } else {
         return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
     }
 
     logger()->info("listing network adapters on {}:{}", params.host, params.port);
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
+    Vim::SoapClient soap(transport, params.host);
 
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -74,7 +74,7 @@ Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const Conne
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
@@ -84,17 +84,17 @@ Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const Conne
     if (!vmInfoResult) {
         return std::move(vmInfoResult).error();
     }
-    const Detail::VimVmInfo& vmInfo = vmInfoResult.value();
+    const Vim::VimVmInfo& vmInfo = vmInfoResult.value();
 
-    std::vector<Detail::VimNetworkAdapterInfo> sorted = vmInfo.networkAdapters;
+    std::vector<Vim::VimNetworkAdapterInfo> sorted = vmInfo.networkAdapters;
     std::sort(sorted.begin(), sorted.end(),
-              [](const Detail::VimNetworkAdapterInfo& a, const Detail::VimNetworkAdapterInfo& b) {
+              [](const Vim::VimNetworkAdapterInfo& a, const Vim::VimNetworkAdapterInfo& b) {
                   return a.key < b.key;
               });
 
     std::vector<VSphereNetworkAdapterInfo> out;
     out.reserve(sorted.size());
-    for (const Detail::VimNetworkAdapterInfo& adapter : sorted) {
+    for (const Vim::VimNetworkAdapterInfo& adapter : sorted) {
         VSphereNetworkAdapterInfo info;
         info.sourceName = adapter.networkName;
         info.networkName = adapter.networkName;
@@ -110,22 +110,22 @@ Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const Conne
 
 Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
 {
-    Detail::VmLocator internalLocator;
+    Vim::VmLocator internalLocator;
     if (vm.moref) {
-        internalLocator = Detail::VmLocator::byMoref(*vm.moref);
+        internalLocator = Vim::VmLocator::byMoref(*vm.moref);
     } else if (vm.uuid) {
-        internalLocator = Detail::VmLocator::byUuid(*vm.uuid);
+        internalLocator = Vim::VmLocator::byUuid(*vm.uuid);
     } else if (vm.inventoryPath) {
-        internalLocator = Detail::VmLocator::byInventoryPath(*vm.inventoryPath);
+        internalLocator = Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
     } else {
         return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
+    Vim::SoapClient soap(transport, params.host);
 
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -133,7 +133,7 @@ Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
@@ -153,10 +153,10 @@ Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
         return std::move(internalLocator).error();
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -164,7 +164,7 @@ Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator.value());
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
@@ -176,7 +176,7 @@ Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
 
     std::vector<VSphereDiskSummary> out;
     out.reserve(vmInfoResult.value().disks.size());
-    for (const Detail::VimDiskInfo& disk : vmInfoResult.value().disks) {
+    for (const Vim::VimDiskInfo& disk : vmInfoResult.value().disks) {
         out.push_back(VSphereDiskSummary{disk.key, disk.capacityBytes, disk.thinProvisioned, disk.eagerlyScrub});
     }
     logger()->info("VM '{}' has {} disk(s)", vmInfoResult.value().name, out.size());
@@ -190,10 +190,10 @@ Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator
         return std::move(internalLocator).error();
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -201,7 +201,7 @@ Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator.value());
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
@@ -220,10 +220,10 @@ Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
         return std::move(internalLocator).error();
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -231,19 +231,19 @@ Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator.value());
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
 
     logger()->info("powering on VM {}", vmMorefResult.value().value);
-    pugi::xml_document request = Detail::makeVimRequest("PowerOnVM_Task", vmMorefResult.value());
+    pugi::xml_document request = Vim::makeVimRequest("PowerOnVM_Task", vmMorefResult.value());
     auto callResult = session->call("urn:vim25/PowerOnVM_Task", request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
-    const Detail::MoRef task = Detail::parseMoRef(Detail::soapBodyContent(callResult.value()).child("returnval"));
+    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
     if (task.empty()) {
         return Error(ErrorCode::InvalidFormat, "PowerOnVM_Task response missing task MoRef");
     }
@@ -261,10 +261,10 @@ Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
         return std::move(internalLocator).error();
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -272,19 +272,19 @@ Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator.value());
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
 
     logger()->info("powering off VM {}", vmMorefResult.value().value);
-    pugi::xml_document request = Detail::makeVimRequest("PowerOffVM_Task", vmMorefResult.value());
+    pugi::xml_document request = Vim::makeVimRequest("PowerOffVM_Task", vmMorefResult.value());
     auto callResult = session->call("urn:vim25/PowerOffVM_Task", request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
-    const Detail::MoRef task = Detail::parseMoRef(Detail::soapBodyContent(callResult.value()).child("returnval"));
+    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
     if (task.empty()) {
         return Error(ErrorCode::InvalidFormat, "PowerOffVM_Task response missing task MoRef");
     }
@@ -302,10 +302,10 @@ Error destroyVm(const ConnectParams& params, const VmLocator& vm)
         return std::move(internalLocator).error();
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -313,19 +313,19 @@ Error destroyVm(const ConnectParams& params, const VmLocator& vm)
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(internalLocator.value());
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
 
     logger()->info("destroying VM {}", vmMorefResult.value().value);
-    pugi::xml_document request = Detail::makeVimRequest("Destroy_Task", vmMorefResult.value());
+    pugi::xml_document request = Vim::makeVimRequest("Destroy_Task", vmMorefResult.value());
     auto callResult = session->call("urn:vim25/Destroy_Task", request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
-    const Detail::MoRef task = Detail::parseMoRef(Detail::soapBodyContent(callResult.value()).child("returnval"));
+    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
     if (task.empty()) {
         return Error(ErrorCode::InvalidFormat, "Destroy_Task response missing task MoRef");
     }
@@ -339,10 +339,10 @@ Error destroyVm(const ConnectParams& params, const VmLocator& vm)
 Error checkDatastoreWriteAccess(const ConnectParams& params, const std::string& datastoreName,
                                          const std::string& resourcePoolMoref)
 {
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    Vim::SoapClient soap(transport, params.host);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -350,8 +350,8 @@ Error checkDatastoreWriteAccess(const ConnectParams& params, const std::string& 
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
-    auto datacenterResult = inventory.resolveDatacenterMoRef(Detail::MoRef{"ResourcePool", resourcePoolMoref});
+    Vim::VimInventory inventory(*session);
+    auto datacenterResult = inventory.resolveDatacenterMoRef(Vim::MoRef{"ResourcePool", resourcePoolMoref});
     if (!datacenterResult) {
         return Error(ErrorCode::InvalidArgument,
                      "could not resolve datacenter for resource pool '" + resourcePoolMoref +

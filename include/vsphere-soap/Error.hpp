@@ -70,24 +70,24 @@ public:
     Error(ErrorCode code, const std::string& message, int errnoValue, const std::string& path);
 
     /// True if this value stands for success, i.e. its code is `ErrorCode::NoError`.
-    [[nodiscard]] bool ok() const noexcept;
+    bool ok() const noexcept;
 
     /// The category of failure.
-    [[nodiscard]] ErrorCode code() const noexcept;
+    ErrorCode code() const noexcept;
 
     /// Human-readable description.
     /// Does not include errno/path text; use `toString()` for a fully formatted message.
-    [[nodiscard]] const std::string message() const noexcept;
+    const std::string message() const noexcept;
 
     /// `errno` captured at the point of failure, if this is an I/O error.
-    [[nodiscard]] std::optional<int> errnoValue() const noexcept;
+    std::optional<int> errnoValue() const noexcept;
 
     /// Path the failing operation targeted, if this is an I/O error.
-    [[nodiscard]] std::optional<std::string> path() const noexcept;
+    std::optional<std::string> path() const noexcept;
 
     /// Formats code, message, and (if present) path + strerror(errno) into a single human-readable line,
     /// suitable for printing by a tool.
-    [[nodiscard]] std::string toString() const;
+    std::string toString() const;
 
 private:
     ErrorCode m_code = ErrorCode::NoError;

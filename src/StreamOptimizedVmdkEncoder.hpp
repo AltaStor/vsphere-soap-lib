@@ -36,7 +36,7 @@
 #include <string>
 #include <vector>
 
-#include "Result.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap::Detail {
 
@@ -140,7 +140,7 @@ public:
     /// This exists for exactly one reason: an HTTP PUT that needs its `Content-Length` known before
     /// the first byte goes out (confirmed live against a real ESXi HttpNfcLease endpoint to be
     /// necessary; it resets the connection on a chunked-encoded PUT; see
-    /// `VSphereSoap::Detail::HttpsRestClient::requestPutStream`'s doc comment).
+    /// `VSphereSoap::Vim::HttpsRestClient::requestPutStream`'s doc comment).
     /// Computed by actually running a real encoder instance over zero-filled grains into a byte-counting
     /// sink, rather than reimplementing this class's sector arithmetic a second time separately: correct
     /// by construction, at the cost of a cheap dry run (no real data touched, just counting).

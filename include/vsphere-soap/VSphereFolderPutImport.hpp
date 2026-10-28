@@ -16,9 +16,9 @@
 #include <memory>
 #include <string>
 
-#include "Result.hpp"
-#include "VSphereDiskImport.hpp" // reuses VSphereAttachControllerSpec/VSphereAttachResult
-#include "VmwareSoapDisk.hpp"     // reuses ConnectParams/VmLocator
+#include "vsphere-soap/Result.hpp"
+#include "vsphere-soap/VSphereDiskImport.hpp" // reuses VSphereAttachControllerSpec/VSphereAttachResult
+#include "vsphere-soap/VmwareSoapDisk.hpp"     // reuses ConnectParams/VmLocator
 
 namespace VSphereSoap {
 

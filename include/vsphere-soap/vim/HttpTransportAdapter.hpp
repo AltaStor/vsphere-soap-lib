@@ -12,10 +12,10 @@
 #include <optional>
 #include <string>
 
-#include "HttpsRestClient.hpp"
-#include "IHttpTransport.hpp"
+#include "vsphere-soap/vim/HttpsRestClient.hpp"
+#include "vsphere-soap/vim/IHttpTransport.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 class HttpTransportAdapter final : public IHttpTransport {
 public:
@@ -52,7 +52,7 @@ public:
     }
 
 private:
-    VSphereSoap::Detail::HttpsRestClient m_client;
+    VSphereSoap::Vim::HttpsRestClient m_client;
 };
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

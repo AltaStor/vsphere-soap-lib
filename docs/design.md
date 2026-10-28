@@ -16,6 +16,13 @@ string-built XML is the OVF descriptor for `CreateImportSpec`, which escapes eac
 by element local name, ignoring whichever namespace prefix the server chose. Every request uses the unversioned
 `urn:vim25` namespace.
 
+Three layers, each usable on its own:
+
+- **`vim/`**: the HTTPS transport, SOAP client, VIM session and inventory, public for raw calls.
+- **The core API**: export, import and VM queries built on it. Its disk classes share one method set but no base
+  class, so the library imposes no disk interface on a tool.
+- **`disk/`**: an optional target with the library's own `IDisk` and an adapter over the disk classes.
+
 ## 2. Sessions
 
 `VimSession::open()` calls `RetrieveServiceContent` on the fixed `ServiceInstance` object, then `Login`.
@@ -43,6 +50,9 @@ Nothing throws across the API. `ErrorCode` stays coarse, for callers to branch o
 | `InvalidArgument` | A VM, disk, datastore or controller that matches nothing (or too much), a powered-on VM where a powered-off one is required |
 | `NotImplemented` | Reading from an upload backend or writing to the export disk; CBT that is not eligible |
 | `Cancelled` | An upload backend destroyed before a successful `flush()` |
+
+`Result` and `Error` are the library's own vocabulary types and stay inside it: a tool with an error type of its
+own converts at its adapter, where a default `Error` (code `NoError`) means success.
 
 Tasks are polled with a capped exponential backoff (250 ms up to 5 s) for at most 10 minutes; a lease has 5
 minutes to become ready.

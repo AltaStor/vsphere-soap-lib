@@ -3,7 +3,7 @@
 //
 // HTTPS client for the vSphere SOAP endpoint and datastore transfers
 
-#include "HttpsRestClient.hpp"
+#include "vsphere-soap/vim/HttpsRestClient.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -27,7 +27,9 @@
 
 #include "SoapLog.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
+
+using Detail::httpLogger;
 
 namespace {
 
@@ -637,4 +639,4 @@ Result<HttpResponse> HttpsRestClient::requestStream(HttpMethod method, const std
     return result;
 }
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

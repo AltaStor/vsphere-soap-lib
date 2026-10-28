@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "StreamOptimizedVmdkEncoder.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 using VSphereSoap::Detail::StreamOptimizedVmdkEncoder;
 using VSphereSoap::Detail::VmdkGrain;

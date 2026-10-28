@@ -9,7 +9,7 @@
 #include <chrono>
 #include <thread>
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

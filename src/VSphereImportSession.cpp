@@ -3,19 +3,19 @@
 //
 // Public wrapper for HttpNfcLease-based vSphere VM import
 
-#include "VSphereImportSession.hpp"
+#include "vsphere-soap/VSphereImportSession.hpp"
 
 #include <algorithm>
 #include <utility>
 
 #include "HttpNfcLeaseSession.hpp"
-#include "HttpTransportAdapter.hpp"
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
 #include "TaskWait.hpp"
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
@@ -26,23 +26,23 @@ using VSphereSoap::Result;
 namespace {
 using Detail::logger;
 
-Detail::MoRef moRefOf(const char* type, const std::string& value)
+Vim::MoRef moRefOf(const char* type, const std::string& value)
 {
     if (value.empty()) {
         return {};
     }
-    return Detail::MoRef{type, value};
+    return Vim::MoRef{type, value};
 }
 } // namespace
 
 class VSphereImportSession::Impl {
 public:
-    Impl(std::unique_ptr<Detail::IHttpTransport> transport, std::string host)
+    Impl(std::unique_ptr<Vim::IHttpTransport> transport, std::string host)
         : m_transport(std::move(transport)), m_soap(*m_transport, std::move(host)) {}
 
-    std::unique_ptr<Detail::IHttpTransport> m_transport;
-    Detail::SoapClient m_soap;
-    std::unique_ptr<Detail::VimSession> m_session;
+    std::unique_ptr<Vim::IHttpTransport> m_transport;
+    Vim::SoapClient m_soap;
+    std::unique_ptr<Vim::VimSession> m_session;
     std::unique_ptr<Detail::HttpNfcLeaseSession> m_lease;
     std::string m_vmId;
     std::vector<VSphereImportDeviceUrl> m_deviceUrls;
@@ -64,11 +64,11 @@ Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const 
     logger()->info("opening VIM session for HttpNfcLease import of '{}' on {}:{}", spec.vmName, params.host,
                     params.port);
     auto impl = std::make_unique<Impl>(
-        std::make_unique<Detail::HttpTransportAdapter>(params.host, params.port, params.verifyTlsCertificate,
+        std::make_unique<Vim::HttpTransportAdapter>(params.host, params.port, params.verifyTlsCertificate,
                                                           params.pinnedThumbprint),
         params.host);
 
-    auto sessionResult = Detail::VimSession::open(impl->m_soap, params.username, params.password);
+    auto sessionResult = Vim::VimSession::open(impl->m_soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -160,19 +160,19 @@ Error VSphereImportSession::complete() { return m_impl->m_lease->complete(); }
 
 Error VSphereImportSession::destroyPlaceholderVm()
 {
-    const Detail::MoRef vm{"VirtualMachine", m_impl->m_vmId};
+    const Vim::MoRef vm{"VirtualMachine", m_impl->m_vmId};
     logger()->info("destroying placeholder VM {} (upload failed or was cancelled -- deleting its files too)",
                     vm.value);
-    pugi::xml_document request = Detail::makeVimRequest("Destroy_Task", vm);
+    pugi::xml_document request = Vim::makeVimRequest("Destroy_Task", vm);
     auto callResult = m_impl->m_session->call("urn:vim25/Destroy_Task", request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
-    const Detail::MoRef task = Detail::parseMoRef(Detail::soapBodyContent(callResult.value()).child("returnval"));
+    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
     if (task.empty()) {
         return Error(ErrorCode::InvalidFormat, "Destroy_Task response missing task MoRef");
     }
-    Result<Detail::MoRef> waited = Detail::waitForVimTask(*m_impl->m_session, task);
+    Result<Vim::MoRef> waited = Detail::waitForVimTask(*m_impl->m_session, task);
     if (!waited) {
         return std::move(waited).error();
     }

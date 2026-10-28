@@ -8,13 +8,15 @@
 #include <string>
 
 #include "Placement.hpp"
-#include "SoapClient.hpp"
-#include "VimSession.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
 #include "fake_http_transport.hpp"
-#include "VSphereDatastoreBackend.hpp"
+#include "vsphere-soap/VSphereDatastoreBackend.hpp"
 
 namespace VSphereSoap::Detail {
 namespace {
+
+using namespace VSphereSoap::Vim;
 
 using Test::FakeHttpTransport;
 

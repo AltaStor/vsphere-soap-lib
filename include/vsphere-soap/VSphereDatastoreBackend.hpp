@@ -23,18 +23,18 @@
 //
 // Deliberately separate from HttpNfcLeaseSession: that class owns the lease's lifecycle (creating
 // the VM, obtaining device URLs, keepalive, complete/abort) for a whole (possibly multi-disk) VM import;
-// this class is purely the IDisk-shaped byte pump for *one* disk's device URL, handed to it by whatever
+// this class is purely the disk-shaped byte pump for *one* disk's device URL, handed to it by whatever
 // orchestrates the two together (not this class's job; see HttpNfcLeaseSession.hpp's own doc comment on
 // why VM creation and datastore writing are split like this).
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
 
-#include "IDisk.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap {
 
@@ -95,7 +95,7 @@ struct VSphereDatastoreBackendParams {
 /// `VSphereImportDiskSpec::capacityBytes` need.
 /// The tail past the source's own size reads as zero.
 ///
-[[nodiscard]] std::uint64_t roundUpToGrain(std::uint64_t virtualSizeBytes, std::uint64_t grainSizeSectors = 128);
+std::uint64_t roundUpToGrain(std::uint64_t virtualSizeBytes, std::uint64_t grainSizeSectors = 128);
 
 /// The embedded descriptor text of a streamOptimized VMDK, for
 /// `VSphereDatastoreBackendParams::vmdkDescriptor`.
@@ -104,59 +104,37 @@ struct VSphereDatastoreBackendParams {
 /// `adapterType` ("paravirtual", "lsilogic", "lsilogicsas", "buslogic", "ide") should match
 /// the controller the VM gets the disk on; it is the guest's hint, not what decides the controller.
 ///
-[[nodiscard]] std::string makeStreamOptimizedDescriptor(std::uint64_t capacityBytes, const std::string& fileName,
+std::string makeStreamOptimizedDescriptor(std::uint64_t capacityBytes, const std::string& fileName,
                                                         const std::string& adapterType = "paravirtual");
 
-/// `IDisk` over a VMware virtual disk written via an HttpNfcLease device URL with no local staging file:
-/// every `writeAt()` call feeds bytes into a `StreamOptimizedVmdkEncoder` directly, whose output is
-/// queued to a background thread driving one continuous HTTPS PUT for the whole transfer; see
-/// `compressGrains`'s own doc comment for the two modes this switches between
-/// (compressed/sparse/chunked, the one a real vCenter/ESXi actually accepts, vs.
-/// uncompressed/dense/precomputed-Content-Length).
+/// Write-only disk uploaded through an HttpNfcLease device URL with no local staging file.
+/// Written bytes go through the streamOptimized VMDK encoder into one HTTPS PUT that a background thread
+/// keeps open for the whole transfer.
 ///
-/// Write-only (`readAt` fails with `ErrorCode::NotImplemented`).
-/// `writeAt()` calls must arrive in non-decreasing, non-overlapping offset order (a gap is fine on this
-/// class's own API (a copy loop may skip `writeAt()` for chunks its source reports as all zero) in
-/// `compressGrains = true` mode such a gap is genuinely omitted from the upload entirely, same as
-/// `StreamOptimizedVmdkEncoder`'s own sparse default; in `compressGrains = false` mode it's zero-filled
-/// instead, per that field's own doc comment) and each call's offset must either be grain-aligned or
-/// an exact contiguous continuation of the immediately preceding call (so a caller whose chunk size
-/// isn't a multiple of the grain size can still drive this correctly, as long as it never skips
-/// a *partial* grain, only whole ones).
-/// Any other ordering fails loudly with `ErrorCode::InvalidArgument` rather than silently producing
-/// a corrupt stream.
+/// Writes must come in non-decreasing, non-overlapping offset order.
+/// Each offset is either grain-aligned or continues the previous write exactly, so whole grains may be
+/// skipped but never part of one.
+/// Skipped grains are left out of the upload in compressed mode and zero-filled in dense mode.
+/// Any other order fails with `ErrorCode::InvalidArgument`.
 ///
-/// `flush()` is where the real finalization happens (a copy loop's last call): pads and emits any
-/// in-progress partial grain, calls the encoder's `finish()`, signals end-of-body to the upload thread,
-/// joins it, and fails if the datastore's HTTP response wasn't 2xx.
-/// Idempotent.
-/// The destructor aborts the transfer (best-effort) if `flush()` was never called or didn't succeed:
-/// a partially-streamed disk is never left as what looks like a valid one.
+/// `flush()` finalizes the upload and the destructor aborts it when `flush()` did not succeed, so a partial
+/// upload never looks like a valid disk.
+/// It has the usual disk methods but no disk base class: a tool wraps it into its own disk interface.
+/// Not thread-safe from the caller's side.
 ///
-/// Not thread-safe from the caller's side (confine `writeAt()`/`flush()` calls to one thread, matching
-/// every other `IDisk` in this codebase) even though it owns a background upload thread internally.
-///
-class VSphereDatastoreBackend final : public VSphereSoap::IDisk {
+class VSphereDatastoreBackend final {
 public:
-    /// Parses `params.deviceUrl`'s host/port, opens a dedicated HTTPS connection to it (not shared with
-    /// any other `IHttpTransport`: see VSphereDatastoreBackend.cpp on why), constructs the encoder, and
-    /// starts the background upload thread (which immediately begins waiting for the first bytes;
-    /// nothing is sent over the wire until the first `writeAt()`/`flush()` call produces some, since
-    /// the HTTP header/body only actually reaches the socket once Beast's serializer has something to
-    /// write).
-    ///
-    /// Fails with `ErrorCode::InvalidArgument` if `deviceUrl` isn't a parseable
-    /// "https://host[:port]/..."
-    /// URL or `virtualSizeBytes`/`grainSizeSectors` don't satisfy `StreamOptimizedVmdkEncoder::create`'s
-    /// preconditions.
+    /// Opens a dedicated HTTPS connection to the device URL and starts the background upload thread.
+    /// Nothing reaches the wire before the first write or flush produces data.
+    /// Fails with `ErrorCode::InvalidArgument` on an unparseable "https://host[:port]/..." URL or a size that is
+    /// not a nonzero multiple of the grain size.
     ///
     static VSphereSoap::Result<std::unique_ptr<VSphereDatastoreBackend>>
     open(VSphereDatastoreBackendParams params);
 
     /// Aborts the upload (best-effort) if `flush()` was never called or failed, then joins
     /// the background thread.
-    /// See the class doc comment.
-    ~VSphereDatastoreBackend() override;
+    ~VSphereDatastoreBackend();
 
     VSphereDatastoreBackend(const VSphereDatastoreBackend&) = delete;
     VSphereDatastoreBackend& operator=(const VSphereDatastoreBackend&) = delete;
@@ -164,14 +142,18 @@ public:
     VSphereDatastoreBackend& operator=(VSphereDatastoreBackend&&) = delete;
 
     /// Always fails with `ErrorCode::NotImplemented`: this backend is write-only.
-    VSphereSoap::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out) override;
+    VSphereSoap::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out);
 
-    VSphereSoap::Result<std::uint64_t> writeAt(std::uint64_t offset, std::span<const std::byte> in) override;
+    /// Encodes `in` at `offset` and queues it for the upload, in the order the class comment describes.
+    VSphereSoap::Result<std::uint64_t> writeAt(std::uint64_t offset, std::span<const std::byte> in);
 
-    [[nodiscard]] std::uint64_t virtualSize() const noexcept override;
-    [[nodiscard]] std::uint64_t sectorSize() const noexcept override;
+    std::uint64_t virtualSize() const noexcept;
+    std::uint64_t sectorSize() const noexcept;
 
-    VSphereSoap::Error flush() override;
+    /// Emits the last partial grain and the VMDK footer, ends the upload and fails unless the datastore
+    /// answered 2xx.
+    /// Idempotent.
+    VSphereSoap::Error flush();
 
     /// Keeps the upload connection from going idle long enough for ESXi to drop it (it aborts
     /// an HttpNfcLease upload that has sent nothing for roughly a minute; confirmed live), which a long

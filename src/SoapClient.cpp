@@ -3,7 +3,7 @@
 //
 // vSphere Web Services SOAP client
 
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -12,7 +12,9 @@
 
 #include "SoapLog.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
+
+using Detail::logger;
 
 namespace {
 
@@ -131,4 +133,4 @@ Result<pugi::xml_document> SoapClient::call(const std::string& soapAction, const
     return doc;
 }
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

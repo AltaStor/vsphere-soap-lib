@@ -18,14 +18,18 @@
 #include <thread>
 #include <vector>
 
-#include "VimTypes.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Result.hpp"
+
+namespace VSphereSoap::Vim {
+class VimSession;
+}
 
 namespace VSphereSoap::Detail {
 
-using VSphereSoap::Result;
+using namespace VSphereSoap::Vim;
 
-class VimSession;
+using VSphereSoap::Result;
 
 /// One disk this VM is being imported with.
 /// `capacityBytes` is the *logical* (guest-visible) disk size; `key` is an arbitrary caller-chosen
@@ -196,8 +200,8 @@ public:
     HttpNfcLeaseSession(HttpNfcLeaseSession&&) = delete;
     HttpNfcLeaseSession& operator=(HttpNfcLeaseSession&&) = delete;
 
-    [[nodiscard]] const MoRef& vm() const noexcept { return m_vm; }
-    [[nodiscard]] const std::vector<LeaseDeviceUrl>& deviceUrls() const noexcept { return m_deviceUrls; }
+    const MoRef& vm() const noexcept { return m_vm; }
+    const std::vector<LeaseDeviceUrl>& deviceUrls() const noexcept { return m_deviceUrls; }
 
     /// Starts a background thread sending `HttpNfcLeaseProgress` every `interval` (default 30s, well
     /// under vCenter's own lease timeout) until `stopKeepAlive()` is called or this object is destroyed.

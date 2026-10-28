@@ -3,7 +3,7 @@
 //
 // VMware SOAP/HTTPS virtual disk source
 
-#include "VmwareSoapDisk.hpp"
+#include "vsphere-soap/VmwareSoapDisk.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,14 +14,14 @@
 
 #include "CbtQuery.hpp"
 #include "DatastorePath.hpp"
-#include "HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "SnapshotScope.hpp"
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
-#include "VimInventory.hpp"
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
@@ -29,8 +29,8 @@ using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
 using VSphereSoap::Result;
 using Detail::deriveFlatName;
-using Detail::HttpHeader;
-using Detail::HttpMethod;
+using Vim::HttpHeader;
+using Vim::HttpMethod;
 using Detail::parseFlatExtentFileName;
 using Detail::siblingPath;
 using Detail::urlEncode;
@@ -87,7 +87,7 @@ struct RangeProbeResult {
     bool hasContentRange = false;
 };
 
-Result<RangeProbeResult> probeRange(Detail::IHttpTransport& transport, const std::string& target,
+Result<RangeProbeResult> probeRange(Vim::IHttpTransport& transport, const std::string& target,
                                      const std::string& cookie)
 {
     std::vector<HttpHeader> headers{{"Range", "bytes=0-15"}};
@@ -115,9 +115,9 @@ Result<RangeProbeResult> probeRange(Detail::IHttpTransport& transport, const std
 /// Returns the resolved `{path, query}` on success: `path + "?" + query` is what `readAt` issues ranged
 /// GETs against.
 ///
-Result<std::pair<std::string, std::string>> resolveGetTarget(Detail::IHttpTransport& transport,
+Result<std::pair<std::string, std::string>> resolveGetTarget(Vim::IHttpTransport& transport,
                                                                 const std::string& cookie, const std::string& dcName,
-                                                                const Detail::VimDiskInfo& disk)
+                                                                const Vim::VimDiskInfo& disk)
 {
     const std::string query = "dcPath=" + urlEncode(dcName) + "&dsName=" + urlEncode(disk.datastoreName);
 
@@ -186,15 +186,15 @@ Result<std::pair<std::string, std::string>> resolveGetTarget(Detail::IHttpTransp
 
 class VmwareSoapDisk::Impl {
 public:
-    Impl(std::unique_ptr<Detail::IHttpTransport> transport, std::string host)
+    Impl(std::unique_ptr<Vim::IHttpTransport> transport, std::string host)
         : m_transport(std::move(transport)), m_soap(*m_transport, std::move(host)) {}
 
-    std::unique_ptr<Detail::IHttpTransport> m_transport;
-    Detail::SoapClient m_soap;
-    std::unique_ptr<Detail::VimSession> m_session;
+    std::unique_ptr<Vim::IHttpTransport> m_transport;
+    Vim::SoapClient m_soap;
+    std::unique_ptr<Vim::VimSession> m_session;
     std::unique_ptr<Detail::SnapshotScope> m_snapshotScope; // only set when cbtActive_
-    Detail::MoRef m_vm;
-    Detail::VimDiskInfo m_disk;
+    Vim::MoRef m_vm;
+    Vim::VimDiskInfo m_disk;
     std::string m_getPath;
     std::string m_getQuery;
     std::uint64_t m_virtualSizeBytes = 0;
@@ -217,13 +217,13 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     if (!disk.key && !disk.datastorePath) {
         return Error(ErrorCode::InvalidArgument, "DiskSelector has neither key nor datastorePath set");
     }
-    Detail::VmLocator internalLocator;
+    Vim::VmLocator internalLocator;
     if (vm.moref) {
-        internalLocator = Detail::VmLocator::byMoref(*vm.moref);
+        internalLocator = Vim::VmLocator::byMoref(*vm.moref);
     } else if (vm.uuid) {
-        internalLocator = Detail::VmLocator::byUuid(*vm.uuid);
+        internalLocator = Vim::VmLocator::byUuid(*vm.uuid);
     } else if (vm.inventoryPath) {
-        internalLocator = Detail::VmLocator::byInventoryPath(*vm.inventoryPath);
+        internalLocator = Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
     } else {
         return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
     }
@@ -232,11 +232,11 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
                     params.host, params.port);
 
     auto impl = std::make_unique<Impl>(
-        std::make_unique<Detail::HttpTransportAdapter>(params.host, params.port, params.verifyTlsCertificate,
+        std::make_unique<Vim::HttpTransportAdapter>(params.host, params.port, params.verifyTlsCertificate,
                                                           params.pinnedThumbprint),
         params.host);
 
-    auto sessionResult = Detail::VimSession::open(impl->m_soap, params.username, params.password);
+    auto sessionResult = Vim::VimSession::open(impl->m_soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -244,7 +244,7 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     }
     impl->m_session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*impl->m_session);
+    Vim::VimInventory inventory(*impl->m_session);
 
     auto vmMorefResult = inventory.findVm(internalLocator);
     if (!vmMorefResult) {
@@ -272,16 +272,16 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     if (!vmInfoResult) {
         return std::move(vmInfoResult).error();
     }
-    const Detail::VimVmInfo& vmInfo = vmInfoResult.value();
+    const Vim::VimVmInfo& vmInfo = vmInfoResult.value();
     logger()->debug("VM '{}' has {} disk(s)", vmInfo.name, vmInfo.disks.size());
 
-    if (vmInfo.powerState != Detail::VimPowerState::PoweredOff) {
+    if (vmInfo.powerState != Vim::VimPowerState::PoweredOff) {
         return Error(ErrorCode::InvalidArgument, "VM '" + vmInfo.name +
                                                       "' is not powered off; this backend only supports "
                                                       "powered-off source VMs");
     }
 
-    const Detail::VimDiskInfo* matchedDisk = nullptr;
+    const Vim::VimDiskInfo* matchedDisk = nullptr;
     for (const auto& candidate : vmInfo.disks) {
         if (disk.key && candidate.key == *disk.key) {
             matchedDisk = &candidate;
@@ -427,13 +427,8 @@ Error VmwareSoapDisk::flush() { return {}; }
 Result<bool> VmwareSoapDisk::isZero(std::uint64_t offset, std::uint64_t length)
 {
     if (!m_impl->m_cbtActive) {
-        // IDisk::isZero()'s generic default reads the range over the network to inspect it: pointless
-        // here, since convert() is about to read() this exact range anyway the moment this returns
-        // false.
-        // Without CBT there's no cheap way to know allocation state without a network round-trip, so
-        // don't pay for one twice: just say "not zero" and let the real read happen once, in convert()'s
-        // own chunk size rather than isZero()'s much smaller internal one.
-        //
+        // Without CBT only a network read could tell, and the caller reads this range anyway once it gets
+        // false, so the range is not read twice.
         return false;
     }
     if (length == 0) {

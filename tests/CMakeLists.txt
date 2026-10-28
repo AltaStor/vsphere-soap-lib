@@ -40,6 +40,10 @@ add_executable(vsphere_soap_tests
 # White-box: the tests drive the library's internal classes through their private headers.
 target_include_directories(vsphere_soap_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 target_link_libraries(vsphere_soap_tests PRIVATE vsphere-soap GTest::gtest_main)
+if(TARGET vsphere-soap-disk)
+    target_sources(vsphere_soap_tests PRIVATE test_disk_adapter.cpp)
+    target_link_libraries(vsphere_soap_tests PRIVATE vsphere-soap-disk)
+endif()
 gtest_discover_tests(vsphere_soap_tests)
 
 # The encoder's compressed output read back by a third-party reader: qemu-img must accept the VMDK and

@@ -9,7 +9,7 @@
 #include <utility>
 #include <variant>
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
@@ -41,7 +41,7 @@ public:
     Result(Error error) : m_storage(std::move(error)) { assert(!std::get<Error>(m_storage).ok()); }
 
     /// True if this result holds a value rather than an error.
-    [[nodiscard]] bool hasValue() const noexcept { return std::holds_alternative<T>(m_storage); }
+    bool hasValue() const noexcept { return std::holds_alternative<T>(m_storage); }
 
     /// Equivalent to `hasValue()`.
     explicit operator bool() const noexcept { return hasValue(); }
@@ -51,7 +51,7 @@ public:
     /// Does not throw; violating the precondition trips an assertion in debug builds and is undefined
     /// behavior in release builds: callers must check `hasValue()` (or `operator bool`) first.
     ///
-    [[nodiscard]] T& value() &
+    T& value() &
     {
         assert(hasValue());
         return std::get<T>(m_storage);
@@ -59,7 +59,7 @@ public:
 
     /// `const` overload of `value()`.
     /// Same precondition.
-    [[nodiscard]] const T& value() const &
+    const T& value() const &
     {
         assert(hasValue());
         return std::get<T>(m_storage);
@@ -67,7 +67,7 @@ public:
 
     /// Rvalue overload of `value()`, for moving the held value out of a temporary `Result`.
     /// Same precondition.
-    [[nodiscard]] T&& value() &&
+    T&& value() &&
     {
         assert(hasValue());
         return std::get<T>(std::move(m_storage));
@@ -76,7 +76,7 @@ public:
     /// Accesses the held error.
     /// Precondition: `!hasValue()`.
     /// Same no-throw/assert contract as `value()`.
-    [[nodiscard]] const Error& error() const &
+    const Error& error() const &
     {
         assert(!hasValue());
         return std::get<Error>(m_storage);
@@ -84,7 +84,7 @@ public:
 
     /// Rvalue overload of `error()`, for moving the error out of a temporary `Result`.
     /// Same precondition.
-    [[nodiscard]] Error&& error() &&
+    Error&& error() &&
     {
         assert(!hasValue());
         return std::get<Error>(std::move(m_storage));

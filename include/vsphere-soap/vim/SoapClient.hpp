@@ -15,10 +15,10 @@
 
 #include <pugixml.hpp>
 
-#include "Result.hpp"
-#include "IHttpTransport.hpp"
+#include "vsphere-soap/Result.hpp"
+#include "vsphere-soap/vim/IHttpTransport.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
@@ -63,14 +63,14 @@ public:
     /// Datastore HTTP GETs (VmwareSoapDisk) need the same session cookie the SOAP calls use, so this is
     /// exposed rather than duplicated.
     ///
-    [[nodiscard]] const std::string& sessionCookie() const noexcept { return m_sessionCookie; }
+    const std::string& sessionCookie() const noexcept { return m_sessionCookie; }
 
     /// The host this client connects to: what an `HttpNfcLeaseInfo.deviceUrl`'s `*` placeholder must be
     /// substituted with before it's usable (vCenter hands back device URLs addressed to the ESXi host
     /// actually holding the datastore, using `*` for "whichever host you used to reach me" when that's
     /// ambiguous).
     ///
-    [[nodiscard]] const std::string& host() const noexcept { return m_host; }
+    const std::string& host() const noexcept { return m_host; }
 
 private:
     IHttpTransport& m_transport;
@@ -83,6 +83,6 @@ private:
 /// Finds `<soapenv:Body>`'s first child by local name (ignoring whichever namespace prefix the server
 /// used): the actual response element `call` callers want.
 /// Returns a null node if `doc` doesn't have the expected envelope/body shape.
-[[nodiscard]] pugi::xml_node soapBodyContent(const pugi::xml_document& doc);
+pugi::xml_node soapBodyContent(const pugi::xml_document& doc);
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

@@ -3,7 +3,7 @@
 //
 // vSphere datastore streaming upload target via HttpNfcLease
 
-#include "VSphereDatastoreBackend.hpp"
+#include "vsphere-soap/VSphereDatastoreBackend.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -16,20 +16,20 @@
 #include <utility>
 
 #include "GrainAssembler.hpp"
-#include "HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "SoapLog.hpp"
 #include "StreamOptimizedVmdkEncoder.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
 using VSphereSoap::Result;
-using Detail::HttpHeader;
-using Detail::HttpResponse;
+using Vim::HttpHeader;
+using Vim::HttpResponse;
 using Detail::GrainAssembler;
-using Detail::HttpTransportAdapter;
+using Vim::HttpTransportAdapter;
 using Detail::StreamOptimizedVmdkEncoder;
 using Detail::VmdkGrain;
 

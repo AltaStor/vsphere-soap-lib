@@ -8,7 +8,7 @@
 #include <cstring>
 #include <utility>
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

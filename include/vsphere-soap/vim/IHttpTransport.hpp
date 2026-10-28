@@ -15,10 +15,10 @@
 #include <string>
 #include <vector>
 
-#include "HttpsRestClient.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/HttpsRestClient.hpp"
+#include "vsphere-soap/Result.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 /// One HTTPS request/response round trip against a fixed host.
 /// Both SoapClient (POSTing SOAP envelopes to /sdk) and VmwareSoapDisk (ranged GETs against /folder) go
@@ -67,4 +67,4 @@ public:
                                                                     std::optional<std::uint64_t> contentLength) = 0;
 };
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

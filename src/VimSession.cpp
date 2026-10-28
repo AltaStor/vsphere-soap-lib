@@ -3,12 +3,14 @@
 //
 // RAII vSphere Web Services login session
 
-#include "VimSession.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
 
 #include "SoapLog.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
+
+using Detail::logger;
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
@@ -131,4 +133,4 @@ Result<pugi::xml_document> VimSession::call(const std::string& soapAction, const
     return m_soap.call(soapAction, requestNode);
 }
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

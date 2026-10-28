@@ -19,18 +19,18 @@ namespace VSphereSoap::Detail {
 
 /// Percent-encodes everything except unreserved characters and '/' (which is preserved as a path
 /// separator, not encoded).
-[[nodiscard]] std::string urlEncode(std::string_view in);
+std::string urlEncode(std::string_view in);
 
 /// "myvm/myvm.vmdk" -> "myvm/myvm-flat.vmdk".
 /// Returns `relativePath` unchanged if it doesn't look like a plain descriptor name (already
 /// a "-flat"/"-delta" name, or doesn't end in ".vmdk" at all): the derived name is only ever a guess;
 /// callers must still probe it and fall back to reading the descriptor if it's wrong.
 ///
-[[nodiscard]] std::string deriveFlatName(std::string_view relativePath);
+std::string deriveFlatName(std::string_view relativePath);
 
 /// Replaces the last path segment of `originalRelativePath` with `newFileName`, keeping the same
 /// directory: vSphere always names an extent file relative to its descriptor's own directory.
-[[nodiscard]] std::string siblingPath(std::string_view originalRelativePath, std::string_view newFileName);
+std::string siblingPath(std::string_view originalRelativePath, std::string_view newFileName);
 
 /// Finds the flat/raw extent's file name in a VMDK descriptor's "Extent description" section, e.g.
 /// a `RW 20971520 VMFS "myvm-flat.vmdk"` line: no sparse/COW parsing, just the one quoted token this

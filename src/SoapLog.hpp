@@ -13,7 +13,7 @@
 #include <string_view>
 #include <utility>
 
-#include "Log.hpp"
+#include "vsphere-soap/Log.hpp"
 
 namespace VSphereSoap::Detail {
 
@@ -51,7 +51,7 @@ public:
         write(Log::Level::Error, format, std::forward<Args>(args)...);
     }
 
-    [[nodiscard]] bool enabled(Log::Level level) const noexcept;
+    bool enabled(Log::Level level) const noexcept;
 
 private:
     template <typename... Args>

@@ -14,9 +14,9 @@
 // through FakeHttpTransport like the SOAP-calling classes in this test binary.
 
 using VSphereSoap::Detail::ControllerSelector;
-using VSphereSoap::Detail::VimControllerInfo;
-using VSphereSoap::Detail::VimDiskInfo;
-using VSphereSoap::Detail::VimVmInfo;
+using VSphereSoap::Vim::VimControllerInfo;
+using VSphereSoap::Vim::VimDiskInfo;
+using VSphereSoap::Vim::VimVmInfo;
 using VSphereSoap::Detail::chooseControllerAndUnit;
 
 namespace {

@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
-#include "Result.hpp"
-#include "VmwareSoapDisk.hpp" // reuses ConnectParams
+#include "vsphere-soap/Result.hpp"
+#include "vsphere-soap/VmwareSoapDisk.hpp" // reuses ConnectParams
 
 namespace VSphereSoap {
 
@@ -134,8 +134,8 @@ public:
     VSphereImportSession& operator=(VSphereImportSession&&) = delete;
 
     /// The newly-created VM's moref value (e.g. "vm-123").
-    [[nodiscard]] const std::string& vmId() const noexcept;
-    [[nodiscard]] const std::vector<VSphereImportDeviceUrl>& deviceUrls() const noexcept;
+    const std::string& vmId() const noexcept;
+    const std::vector<VSphereImportDeviceUrl>& deviceUrls() const noexcept;
 
     /// See `HttpNfcLeaseSession::startKeepAlive()`/`stopKeepAlive()`: forwarded verbatim.
     void startKeepAlive(std::function<int()> percentComplete, std::chrono::seconds interval = std::chrono::seconds(30));

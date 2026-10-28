@@ -5,10 +5,12 @@
 
 #pragma once
 
-#include "VimSession.hpp"
-#include "VSpherePlacement.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/VSpherePlacement.hpp"
 
 namespace VSphereSoap::Detail {
+
+using namespace VSphereSoap::Vim;
 
 /// The lookups behind `VSphereSoap::resolvePlacement()`, on a session the caller already holds: one
 /// ContainerView read each for datacenters, datastores and compute resources, plus resource pools and

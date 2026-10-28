@@ -13,7 +13,7 @@
 
 #include <pugixml.hpp>
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 inline constexpr const char* kVimNamespace = "urn:vim25";
 
@@ -23,7 +23,7 @@ struct MoRef {
     std::string type;
     std::string value;
 
-    [[nodiscard]] bool empty() const noexcept { return value.empty(); }
+    bool empty() const noexcept { return value.empty(); }
 };
 
 /// Builds
@@ -32,14 +32,14 @@ struct MoRef {
 /// it's called on, then whatever operation-specific children the caller appends to `.document_element()`
 /// itself before passing it to `SoapClient::call`/`VimSession::call`.
 ///
-[[nodiscard]] pugi::xml_document makeVimRequest(const char* operationName, const MoRef& thisRef);
+pugi::xml_document makeVimRequest(const char* operationName, const MoRef& thisRef);
 
 /// Reads a ManagedObjectReference-shaped node (a `type` attribute plus a text value) into a `MoRef`.
 /// Returns an empty `MoRef` if `node` is null or has no `type` attribute.
-[[nodiscard]] MoRef parseMoRef(pugi::xml_node node);
+MoRef parseMoRef(pugi::xml_node node);
 
 /// `soap:Body`'s response element -> its `<returnval>` child, the shape every VIM response wraps its
 /// actual payload in.
-[[nodiscard]] pugi::xml_node returnval(pugi::xml_node responseElement);
+pugi::xml_node returnval(pugi::xml_node responseElement);
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

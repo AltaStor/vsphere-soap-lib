@@ -7,7 +7,7 @@
 
 // Turns a sequence of arbitrary-sized, arbitrary-offset writeAt()-shaped byte ranges into a sequence of
 // exactly-grain-sized, grain-aligned `StreamOptimizedVmdkEncoder::writeGrain()` calls, matching how
-// a disk copy loop drives an IDisk: sequential, non-overlapping offsets, with gaps where it skipped
+// a disk copy loop drives a disk: sequential, non-overlapping offsets, with gaps where it skipped
 // chunks its source reported as all zero.
 // Split out of VSphereDatastoreBackend.cpp specifically so this arithmetic (the trickiest part of that
 // class) is unit-testable without any HTTP/thread involvement, mirroring DatastorePath.hpp's own reason
@@ -20,7 +20,7 @@
 #include <span>
 #include <vector>
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

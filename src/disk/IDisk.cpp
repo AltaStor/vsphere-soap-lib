@@ -3,12 +3,12 @@
 //
 // Default IDisk helpers (zero-range detection)
 
-#include "IDisk.hpp"
+#include "vsphere-soap/disk/IDisk.hpp"
 
 #include <algorithm>
 #include <vector>
 
-namespace VSphereSoap {
+namespace VSphereSoap::Disk {
 
 namespace {
 constexpr std::uint64_t kIsZeroChunkSize = 1ull * 1024 * 1024;
@@ -47,4 +47,4 @@ Result<bool> IDisk::isZero(std::uint64_t offset, std::uint64_t length)
     return true;
 }
 
-} // namespace VSphereSoap
+} // namespace VSphereSoap::Disk

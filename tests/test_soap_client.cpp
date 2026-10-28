@@ -5,11 +5,13 @@
 
 #include <gtest/gtest.h>
 
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "fake_http_transport.hpp"
 
 namespace VSphereSoap::Detail {
 namespace {
+
+using namespace VSphereSoap::Vim;
 
 using Test::FakeHttpTransport;
 

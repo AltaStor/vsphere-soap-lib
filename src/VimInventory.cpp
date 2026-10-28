@@ -3,16 +3,16 @@
 //
 // vSphere VM lookup and property retrieval
 
-#include "VimInventory.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
 
 #include <algorithm>
 #include <iterator>
 #include <string_view>
 #include <utility>
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
@@ -630,4 +630,4 @@ Result<std::vector<VimObjectProperties>> VimInventory::listObjects(const std::st
     return objects;
 }
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

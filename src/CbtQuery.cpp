@@ -5,7 +5,7 @@
 
 #include "CbtQuery.hpp"
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

@@ -6,7 +6,7 @@
 #pragma once
 
 // Part of vsphere-soap-lib's public API: the folder-put import fallback's byte-streaming half;
-// a write-only `IDisk` that PUTs a monolithicFlat VMDK's raw extent bytes directly to a datastore path
+// a write-only disk that PUTs a monolithicFlat VMDK's raw extent bytes directly to a datastore path
 // with no local staging file, the same "no intermediate files" way `VSphereDatastoreBackend` streams
 // a streamOptimized VMDK to an `HttpNfcLease` device URL.
 // Deliberately separate from that class rather than a mode flag on it: there is no VMDK sparse/grain
@@ -21,13 +21,13 @@
 // the small text descriptor; this class streams the (potentially huge) flat extent itself.
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
 
-#include "IDisk.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap {
 
@@ -60,34 +60,26 @@ struct VSphereFolderPutBackendParams {
     std::chrono::seconds perOperationTimeout{300};
 };
 
-/// `IDisk` over a monolithicFlat VMDK's raw extent, written via a single long-lived HTTPS PUT with
-/// a precomputed `Content-Length`; required because, as live testing found, a real vCenter's datastore
-/// `/folder/` endpoint does not support a ranged/partial PUT at all (`Content-Range` PUT: HTTP 501;
-/// a plain PUT without a full, correct `Content-Length`: silently truncates the file to whatever was
-/// actually sent).
-/// Every `writeAt()` call must therefore arrive in non-decreasing, non-overlapping offset order (a gap
-/// is zero-filled on the wire, in bounded batches, never materialized as one huge buffer) and
-/// the running byte count sent must land on exactly `virtualSizeBytes` by the time `flush()` is called,
-/// or the PUT will desync (a short body hangs; a long one corrupts whatever request reuses the same
-/// connection next): `flush()` itself zero-fills any remaining tail so a caller that stops writing early
-/// (e.g. the source's last bytes were all zero and the copy loop skipped them) still produces
-/// a correctly-sized file.
+/// Write-only disk that streams a monolithicFlat VMDK's raw extent with one HTTPS PUT of a precomputed
+/// `Content-Length`, since the datastore folder endpoint has no ranged PUT.
 ///
-/// Write-only (`readAt` fails with `ErrorCode::NotImplemented`, matching `VSphereDatastoreBackend`).
-/// Not thread-safe from the caller's side, same as every other `IDisk` in this codebase, even though it
-/// owns a background upload thread internally.
+/// Writes must come in non-decreasing, non-overlapping offset order.
+/// Gaps are sent as zeros in bounded batches, and `flush()` zero-fills the tail, so the body always ends
+/// at exactly `virtualSizeBytes`.
 ///
-class VSphereFolderPutBackend final : public VSphereSoap::IDisk {
+/// It has the usual disk methods but no disk base class: a tool wraps it into its own disk interface.
+/// Not thread-safe from the caller's side.
+///
+class VSphereFolderPutBackend final {
 public:
-    /// Parses `params.putUrl`'s host/port, opens a dedicated HTTPS connection (not shared with any other
-    /// transport), and starts the background upload thread immediately (it begins waiting for the first
-    /// bytes right away, matching `VSphereDatastoreBackend::open`'s own reasoning for doing so).
+    /// Opens a dedicated HTTPS connection to the PUT URL and starts the background upload thread.
+    /// Fails with `ErrorCode::InvalidArgument` on an unparseable URL or a zero size.
     static VSphereSoap::Result<std::unique_ptr<VSphereFolderPutBackend>>
     open(VSphereFolderPutBackendParams params);
 
     /// Aborts the upload (best-effort) if `flush()` was never called or failed, then joins
-    /// the background thread: same discipline as `VSphereDatastoreBackend`'s destructor.
-    ~VSphereFolderPutBackend() override;
+    /// the background thread.
+    ~VSphereFolderPutBackend();
 
     VSphereFolderPutBackend(const VSphereFolderPutBackend&) = delete;
     VSphereFolderPutBackend& operator=(const VSphereFolderPutBackend&) = delete;
@@ -95,17 +87,19 @@ public:
     VSphereFolderPutBackend& operator=(VSphereFolderPutBackend&&) = delete;
 
     /// Always fails with `ErrorCode::NotImplemented`: this backend is write-only.
-    VSphereSoap::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out) override;
+    VSphereSoap::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out);
 
-    VSphereSoap::Result<std::uint64_t> writeAt(std::uint64_t offset, std::span<const std::byte> in) override;
+    /// Sends `in` at `offset`, zero-filling any gap after the previous write.
+    /// Fails with `ErrorCode::InvalidArgument` on an out-of-order or out-of-range write.
+    VSphereSoap::Result<std::uint64_t> writeAt(std::uint64_t offset, std::span<const std::byte> in);
 
-    [[nodiscard]] std::uint64_t virtualSize() const noexcept override;
-    [[nodiscard]] std::uint64_t sectorSize() const noexcept override;
+    std::uint64_t virtualSize() const noexcept;
+    std::uint64_t sectorSize() const noexcept;
 
     /// Zero-fills any remaining tail, signals end-of-body, joins the upload thread, and fails if
     /// the datastore's HTTP response wasn't 2xx.
     /// Idempotent.
-    VSphereSoap::Error flush() override;
+    VSphereSoap::Error flush();
 
 private:
     class Impl;

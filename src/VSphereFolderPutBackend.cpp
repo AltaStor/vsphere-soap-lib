@@ -3,7 +3,7 @@
 //
 // vSphere folder-put flat VMDK streaming upload target
 
-#include "VSphereFolderPutBackend.hpp"
+#include "vsphere-soap/VSphereFolderPutBackend.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -12,18 +12,18 @@
 #include <thread>
 #include <utility>
 
-#include "HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "SoapLog.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
 using VSphereSoap::Result;
-using Detail::HttpHeader;
-using Detail::HttpResponse;
-using Detail::HttpTransportAdapter;
+using Vim::HttpHeader;
+using Vim::HttpResponse;
+using Vim::HttpTransportAdapter;
 
 namespace {
 

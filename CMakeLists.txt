@@ -13,10 +13,16 @@
 #                    target_link_libraries(my-tool PRIVATE VSphereSoap::vsphere-soap)
 #                    The library only, built with the tool's own toolchain and settings.
 #
+# Targets:
+#
+#   VSphereSoap::vsphere-soap        the core: SOAP layer, export and import, Error/Result and the log hook
+#   VSphereSoap::vsphere-soap-disk   optional IDisk interface with adapters over the core disk classes
+#
 # Parameters:
 #
 #   VSPHERE_SOAP_BUILD_TESTS     ON | OFF   the unit tests (default: ON standalone, OFF from a tool)
 #   VSPHERE_SOAP_BUILD_EXAMPLES  ON | OFF   the vsphere-disk example tool (default: ON standalone)
+#   VSPHERE_SOAP_BUILD_DISK      ON | OFF   the vsphere-soap-disk target (default: ON standalone)
 #   VSPHERE_SOAP_FETCH_DEPS      ON | OFF   fetch Boost, pugixml and GoogleTest when the system lacks them (ON)
 #   VSPHERE_SOAP_INSTALL         ON | OFF   install rules and the CMake package (default: ON standalone)
 cmake_minimum_required(VERSION 3.21)
@@ -41,6 +47,7 @@ endif()
 
 option(VSPHERE_SOAP_BUILD_TESTS "Build vsphere-soap-lib's unit tests" ${VSPHERE_SOAP_STANDALONE})
 option(VSPHERE_SOAP_BUILD_EXAMPLES "Build the vsphere-disk example tool" ${VSPHERE_SOAP_STANDALONE})
+option(VSPHERE_SOAP_BUILD_DISK "Build the optional IDisk interface and its adapters" ${VSPHERE_SOAP_STANDALONE})
 option(VSPHERE_SOAP_FETCH_DEPS "Fetch Boost, pugixml and GoogleTest when they are not installed" ON)
 option(VSPHERE_SOAP_INSTALL "Install the library, its headers and the VSphereSoap CMake package" ${VSPHERE_SOAP_STANDALONE})
 
@@ -113,7 +120,6 @@ endif()
 
 add_library(vsphere-soap STATIC
     src/Error.cpp
-    src/IDisk.cpp
     src/Log.cpp
     src/HttpsRestClient.cpp
     src/SoapClient.cpp
@@ -142,7 +148,7 @@ add_library(VSphereSoap::vsphere-soap ALIAS vsphere-soap)
 target_include_directories(vsphere-soap
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/vsphere-soap>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
@@ -183,6 +189,24 @@ set_target_properties(vsphere-soap PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# --- The optional IDisk interface ------------------------------------------------------------------------------
+#
+# Kept out of the core so a tool with a disk interface of its own links only the core and adapts the disk
+# classes itself.
+
+if(VSPHERE_SOAP_BUILD_DISK)
+    add_library(vsphere-soap-disk STATIC src/disk/IDisk.cpp)
+    add_library(VSphereSoap::vsphere-soap-disk ALIAS vsphere-soap-disk)
+    target_link_libraries(vsphere-soap-disk PUBLIC vsphere-soap)
+    if(MSVC)
+        target_compile_options(vsphere-soap-disk PRIVATE /utf-8 /W3)
+    else()
+        target_compile_options(vsphere-soap-disk PRIVATE -Wall -Wextra)
+    endif()
+    set_target_properties(vsphere-soap-disk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    list(APPEND _vsphere_soap_install_targets vsphere-soap-disk)
+endif()
+
 message(STATUS "vsphere-soap-lib ${PROJECT_VERSION}: ${CMAKE_SYSTEM_NAME} target")
 
 # --- The unit tests --------------------------------------------------------------------------------------------
@@ -211,10 +235,14 @@ if(VSPHERE_SOAP_INSTALL)
     else()
         include(CMakePackageConfigHelpers)
 
-        install(TARGETS vsphere-soap EXPORT VSphereSoapTargets
+        install(TARGETS vsphere-soap ${_vsphere_soap_install_targets} EXPORT VSphereSoapTargets
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         )
-        install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/vsphere-soap)
+        if(VSPHERE_SOAP_BUILD_DISK)
+            install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        else()
+            install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} PATTERN disk EXCLUDE)
+        endif()
         install(EXPORT VSphereSoapTargets
             NAMESPACE VSphereSoap::
             DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/VSphereSoap

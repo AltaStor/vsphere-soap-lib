@@ -14,13 +14,15 @@
 #include <gtest/gtest.h>
 
 #include "HttpNfcLeaseSession.hpp"
-#include "SoapClient.hpp"
-#include "VimInventory.hpp"
-#include "VimSession.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
 #include "fake_http_transport.hpp"
 
 namespace VSphereSoap::Detail {
 namespace {
+
+using namespace VSphereSoap::Vim;
 
 using Test::FakeHttpTransport;
 

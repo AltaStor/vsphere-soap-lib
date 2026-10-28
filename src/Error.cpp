@@ -3,7 +3,7 @@
 //
 // Library error codes and Error value type
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 #include <system_error>
 

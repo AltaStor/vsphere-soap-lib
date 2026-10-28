@@ -14,7 +14,7 @@
 
 #include <zlib.h>
 
-#include "Error.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

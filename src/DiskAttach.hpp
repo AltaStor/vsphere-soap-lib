@@ -21,12 +21,14 @@
 #include <string>
 #include <vector>
 
-#include "VimInventory.hpp"
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Result.hpp"
 
 namespace VSphereSoap::Detail {
+
+using namespace VSphereSoap::Vim;
 
 using VSphereSoap::Result;
 

@@ -5,6 +5,8 @@ It talks to vCenter or a standalone ESXi host over the vSphere Web Services (SOA
 plain HTTPS for the data, so there is no VMware SDK (VDDK) to ship, license or load.
 
 It is self-contained: it has its own `Result`/`Error`, HTTPS client and log sink.
+It forces none of them on a tool that has its own: the disk classes have no base class, logging is a sink the tool
+installs, and an optional `IDisk` lives in a separate target.
 The behaviour behind each path, including what live testing against real vCenter and ESXi hosts found, is in
 [docs/design.md](docs/design.md).
 
@@ -12,22 +14,24 @@ The behaviour behind each path, including what live testing against real vCenter
 
 | Direction | Classes and functions | Header | How |
 |---|---|---|---|
-| Export a disk | `VmwareSoapDisk` | `VmwareSoapDisk.hpp` | Ranged HTTPS GETs on the disk's flat extent in the datastore; with Changed Block Tracking, unallocated regions are answered by `isZero()` without being read. The VM has to be powered off. |
-| Import as a new VM | `VSphereImportSession`, `VSphereDatastoreBackend` | `VSphereImportSession.hpp`, `VSphereDatastoreBackend.hpp` | `ImportVApp` creates the VM and an HttpNfcLease; the image is streamed as a compressed streamOptimized VMDK, with no local staging file. |
-| Import onto an existing VM | `attachImportedDisk`, `eagerZeroAllDisks` | `VSphereDiskImport.hpp` | The disk imported into a disposable placeholder VM is moved onto the target VM and attached. |
-| Import, fallback transport | `prepareFolderPutImport`, `VSphereFolderPutBackend`, `finishFolderPutImport` | `VSphereFolderPut*.hpp` | A monolithicFlat VMDK PUT straight into the target VM's folder, for hosts that refuse the lease upload. |
-| Placement by name | `resolvePlacement` | `VSpherePlacement.hpp` | Datastore, cluster or host, resource pool and VM folder names to the ids an import takes. |
-| VM queries and actions | `listVmDisks`, `listVmNetworkAdapters`, `getVmNotes`, `getVmPowerState`, `powerOnVm`, `powerOffVm`, `destroyVm`, `checkDatastoreWriteAccess` | `VSphereVmNetworkInfo.hpp` | One-shot calls, each on its own session. |
+| Export a disk | `VmwareSoapDisk` | `vsphere-soap/VmwareSoapDisk.hpp` | Ranged HTTPS GETs on the disk's flat extent in the datastore; with Changed Block Tracking, unallocated regions are answered by `isZero()` without being read. The VM has to be powered off. |
+| Import as a new VM | `VSphereImportSession`, `VSphereDatastoreBackend` | `vsphere-soap/VSphereImportSession.hpp`, `vsphere-soap/VSphereDatastoreBackend.hpp` | `ImportVApp` creates the VM and an HttpNfcLease; the image is streamed as a compressed streamOptimized VMDK, with no local staging file. |
+| Import onto an existing VM | `attachImportedDisk`, `eagerZeroAllDisks` | `vsphere-soap/VSphereDiskImport.hpp` | The disk imported into a disposable placeholder VM is moved onto the target VM and attached. |
+| Import, fallback transport | `prepareFolderPutImport`, `VSphereFolderPutBackend`, `finishFolderPutImport` | `vsphere-soap/VSphereFolderPut*.hpp` | A monolithicFlat VMDK PUT straight into the target VM's folder, for hosts that refuse the lease upload. |
+| Placement by name | `resolvePlacement` | `vsphere-soap/VSpherePlacement.hpp` | Datastore, cluster or host, resource pool and VM folder names to the ids an import takes. |
+| VM queries and actions | `listVmDisks`, `listVmNetworkAdapters`, `getVmNotes`, `getVmPowerState`, `powerOnVm`, `powerOffVm`, `destroyVm`, `checkDatastoreWriteAccess` | `vsphere-soap/VSphereVmNetworkInfo.hpp` | One-shot calls, each on its own session. |
+| Raw vSphere calls | `SoapClient`, `VimSession`, `VimInventory`, `HttpsRestClient` | `vsphere-soap/vim/*.hpp` | The SOAP layer the rest is built on, for calls the high-level API doesn't cover. Namespace `VSphereSoap::Vim`; exposes pugixml types. |
 
-Every fallible call returns `VSphereSoap::Result<T>`; nothing throws across the API.
-`VmwareSoapDisk` and both upload backends implement `VSphereSoap::IDisk`, a byte-offset `readAt`/`writeAt`
-interface, so one copy loop drives either direction. A tool with its own disk interface (`IDiskReader`/
-`IDiskWriter` of abr-disk-lib) wraps these in a few lines.
+Every fallible call returns `VSphereSoap::Result<T>`, or a bare `VSphereSoap::Error` when there is no value;
+nothing throws across the API.
+`VmwareSoapDisk` and both upload backends share one byte-offset method set (`readAt`, `writeAt`, `virtualSize`,
+`sectorSize`, `flush`) without a common base class, so a tool adapts them to its own disk interface, see
+[Using it with a tool's own types](#using-it-with-a-tools-own-types).
 
 ### Export
 
 ```cpp
-#include "VmwareSoapDisk.hpp"
+#include <vsphere-soap/VmwareSoapDisk.hpp>
 
 VSphereSoap::ConnectParams params{.host = "vcenter.example.com", .username = user, .password = password};
 params.pinnedThumbprint = "AB:CD:...";            // or verifyTlsCertificate = false
@@ -49,9 +53,9 @@ for (std::uint64_t offset = 0; offset < disk.value()->virtualSize(); offset += c
 ### Import as a new VM
 
 ```cpp
-#include "VSphereDatastoreBackend.hpp"
-#include "VSphereImportSession.hpp"
-#include "VSpherePlacement.hpp"
+#include <vsphere-soap/VSphereDatastoreBackend.hpp>
+#include <vsphere-soap/VSphereImportSession.hpp>
+#include <vsphere-soap/VSpherePlacement.hpp>
 
 const std::uint64_t capacity = VSphereSoap::roundUpToGrain(imageSize);
 auto placement = VSphereSoap::resolvePlacement(params, {.datastoreName = "ds-01", .computeName = "Cluster"});
@@ -139,6 +143,7 @@ apt install libssl-dev zlib1g-dev libboost-dev libpugixml-dev libgtest-dev qemu-
 |---|---|---|---|
 | `VSPHERE_SOAP_BUILD_TESTS` | `ON`, `OFF` | `ON` standalone, `OFF` from a tool | The unit tests. |
 | `VSPHERE_SOAP_BUILD_EXAMPLES` | `ON`, `OFF` | `ON` standalone, `OFF` from a tool | `vsphere-disk`. |
+| `VSPHERE_SOAP_BUILD_DISK` | `ON`, `OFF` | `ON` standalone, `OFF` from a tool | The optional `vsphere-soap-disk` target with `IDisk` and `DiskAdapter`. |
 | `VSPHERE_SOAP_FETCH_DEPS` | `ON`, `OFF` | `ON` | Fetch Boost, pugixml and GoogleTest when missing; `OFF` makes a missing one an error. |
 | `VSPHERE_SOAP_INSTALL` | `ON`, `OFF` | `ON` standalone | Install rules and the `VSphereSoap` CMake package. Skipped when pugixml was fetched, since the package would then name a dependency its consumer cannot find. |
 
@@ -158,29 +163,93 @@ find_package(VSphereSoap 1 REQUIRED)
 target_link_libraries(my-tool PRIVATE VSphereSoap::vsphere-soap)
 ```
 
-Headers are included by their bare names (`#include "VmwareSoapDisk.hpp"`) in both cases.
-An install puts them in `<prefix>/include/vsphere-soap/`, and the package points the include path there, so
-generic names such as `Error.hpp` and `Result.hpp` stay out of the shared include directory.
-A tool with headers of its own by those names has to keep its include path ahead of this library's.
+Headers are always included with their directory, `#include <vsphere-soap/VmwareSoapDisk.hpp>`, so the library's
+`Error.hpp` or `Result.hpp` never meets a tool's header of the same name.
 
-It is a static library; OpenSSL, zlib and pugixml come along in its link interface.
+| Target | Contents |
+|---|---|
+| `VSphereSoap::vsphere-soap` | The core: export, import, VM queries, the `vim/` SOAP layer, `Result`/`Error` and the log sink. |
+| `VSphereSoap::vsphere-soap-disk` | Optional: `VSphereSoap::Disk::IDisk` and `DiskAdapter`, which turns any core disk class into an `IDisk`. |
+
+Both are static libraries; OpenSSL, zlib and pugixml come along in the core's link interface.
+
+## Using it with a tool's own types
+
+A tool that already has a disk interface, an error type and a logger links only the core and adds a thin layer
+of its own.
+
+**Disks.** The core disk classes have no base class, so one template adapts all three to the tool's interface,
+converting the library's `Error` where the tool's differs:
+
+```cpp
+template <class T>
+class SoapDisk final : public Tool::IDisk {
+public:
+    explicit SoapDisk(std::unique_ptr<T> disk) : m_disk(std::move(disk)) {}
+
+    Tool::Result<std::uint64_t> readAt(std::uint64_t offset, std::span<std::byte> out) override
+    {
+        return toTool(m_disk->readAt(offset, out));
+    }
+    Tool::Result<void> flush() override
+    {
+        const VSphereSoap::Error error = m_disk->flush();
+        return error.ok() ? Tool::Result<void>() : Tool::Result<void>(toTool(error));
+    }
+    // writeAt, virtualSize, sectorSize and isZero the same way
+    T& disk() { return *m_disk; } // keepAliveIfIdle(), cbtActive()
+
+private:
+    std::unique_ptr<T> m_disk;
+};
+```
+
+`include/vsphere-soap/disk/DiskAdapter.hpp` is the same template against the library's own `IDisk`.
+A default-constructed `VSphereSoap::Error` means success (`ok()`); `code()` and `message()` carry the rest.
+
+**Logging.** Messages arrive on two channels, "soap" for vSphere calls and "http" for the transport.
+Routing them into spdlog:
+
+```cpp
+VSphereSoap::Log::setLevel(VSphereSoap::Log::Level::Debug);
+VSphereSoap::Log::setSink([](VSphereSoap::Log::Level level, std::string_view channel, std::string_view message) {
+    static const auto levels = std::array{spdlog::level::trace, spdlog::level::debug, spdlog::level::info,
+                                          spdlog::level::warn, spdlog::level::err, spdlog::level::off};
+    spdlog::get(std::string(channel))->log(levels[static_cast<int>(level)], "{}", message);
+});
+```
+
+The sink is called from the upload threads too, so it has to be thread-safe.
+
+**Raw calls.** `vsphere-soap/vim/` gives direct access to the SOAP session for what the high-level API doesn't
+cover. `HttpTransportAdapter` is the library's HTTPS client behind `IHttpTransport`, which a tool may also
+implement over a transport of its own.
+
+```cpp
+VSphereSoap::Vim::HttpTransportAdapter transport(host, 443, verifyTls, thumbprint);
+VSphereSoap::Vim::SoapClient soap(transport, host);
+auto session = VSphereSoap::Vim::VimSession::open(soap, user, password);
+VSphereSoap::Vim::VimInventory inventory(*session.value());
+auto vms = inventory.listObjects("VirtualMachine", {"name", "runtime.powerState"});
+```
 
 ## Layout
 
 ```
-include/               VmwareSoapDisk.hpp            export; ConnectParams, VmLocator, DiskSelector
+include/vsphere-soap/  VmwareSoapDisk.hpp            export; ConnectParams, VmLocator, DiskSelector
                        VSphereImportSession.hpp      import: the VM and its HttpNfcLease
                        VSphereDatastoreBackend.hpp   import: the streamOptimized upload, descriptor helpers
                        VSphereDiskImport.hpp         import onto an existing VM
                        VSphereFolderPut*.hpp         the folder-put fallback transport
                        VSpherePlacement.hpp          names to placement ids
                        VSphereVmNetworkInfo.hpp      one-shot VM queries and actions
-                       IDisk.hpp, Result.hpp, Error.hpp, Log.hpp
-src/                   SoapClient, VimSession, VimInventory, VimTypes     the SOAP client and VIM session
-                       SnapshotScope, CbtQuery, TaskWait                  snapshots, CBT, task polling
+                       Result.hpp, Error.hpp, Log.hpp
+  vim/                 SoapClient, VimSession, VimInventory, VimTypes     the SOAP client and VIM session
+                       HttpsRestClient, HttpTransportAdapter, IHttpTransport   HTTPS over Boost.Beast
+  disk/                IDisk.hpp, DiskAdapter.hpp    the optional vsphere-soap-disk target
+src/                   SnapshotScope, CbtQuery, TaskWait                  snapshots, CBT, task polling
                        HttpNfcLeaseSession, DiskAttach                    lease lifecycle, disk move and attach
                        StreamOptimizedVmdkEncoder, GrainAssembler         the VMDK stream
-                       HttpsRestClient, HttpTransportAdapter, IHttpTransport   HTTPS over Boost.Beast
 tests/                 unit tests against a scripted fake transport; qemu-img interop of the encoder
 examples/              vsphere-disk
 docs/design.md         how each path works and what live testing found
@@ -196,5 +265,9 @@ docs/design.md         how each path works and what live testing found
   `vsphere-disk import` of a 1 GiB image as a new thin VM, placed by datastore and cluster name, read back
   through `VmwareSoapDisk` and matching byte for byte.
 - **Built as a subdirectory** of a separate consumer project, with the tool's log sink receiving the messages.
+- **Installed and used through `find_package`** by a consumer with its own `Error.hpp`, `Result.hpp` and
+  `IDisk.hpp` ahead in its include path, adapting the disk classes to its own interface.
+  Through `DiskAdapter`, a 10 GiB disk of a powered-off VM was opened with CBT, read and checked with `isZero()`
+  on a live vCenter, the VM found by name through the `vim/` layer.
 - **Not built yet:** Windows (MinGW or MSVC) and macOS. The code has no platform-specific parts, and the build
   links Winsock and crypt32 on Windows, but neither has been compiled.

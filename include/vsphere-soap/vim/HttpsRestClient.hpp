@@ -19,9 +19,9 @@
 #include <string>
 #include <vector>
 
-#include "Result.hpp"
+#include "vsphere-soap/Result.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 enum class HttpMethod {
     Get,
@@ -188,4 +188,4 @@ private:
     mutable std::unique_ptr<Connection> m_connection;
 };
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

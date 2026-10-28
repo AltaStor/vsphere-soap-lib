@@ -9,10 +9,10 @@
 #include <chrono>
 #include <sstream>
 
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
-#include "VimSession.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 

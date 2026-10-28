@@ -3,15 +3,15 @@
 //
 // Public wrapper for attaching uploaded disks to vSphere VMs
 
-#include "VSphereDiskImport.hpp"
+#include "vsphere-soap/VSphereDiskImport.hpp"
 
 #include "DiskAttach.hpp"
-#include "HttpTransportAdapter.hpp"
-#include "SoapClient.hpp"
+#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
-#include "VimInventory.hpp"
-#include "VimSession.hpp"
-#include "Error.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap {
 
@@ -27,13 +27,13 @@ Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, cons
         return Error(ErrorCode::InvalidArgument, "VSphereAttachSpec::placeholderVmId must not be empty");
     }
 
-    Detail::VmLocator targetLocator;
+    Vim::VmLocator targetLocator;
     if (spec.targetVm.moref) {
-        targetLocator = Detail::VmLocator::byMoref(*spec.targetVm.moref);
+        targetLocator = Vim::VmLocator::byMoref(*spec.targetVm.moref);
     } else if (spec.targetVm.uuid) {
-        targetLocator = Detail::VmLocator::byUuid(*spec.targetVm.uuid);
+        targetLocator = Vim::VmLocator::byUuid(*spec.targetVm.uuid);
     } else if (spec.targetVm.inventoryPath) {
-        targetLocator = Detail::VmLocator::byInventoryPath(*spec.targetVm.inventoryPath);
+        targetLocator = Vim::VmLocator::byInventoryPath(*spec.targetVm.inventoryPath);
     } else {
         return Error(ErrorCode::InvalidArgument, "VSphereAttachSpec::targetVm has none of moref/uuid/inventoryPath set");
     }
@@ -41,26 +41,26 @@ Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, cons
     logger()->info("attaching placeholder VM {}'s disk to target VM on {}:{}", spec.placeholderVmId, params.host,
                     params.port);
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
+    Vim::SoapClient soap(transport, params.host);
 
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
         return std::move(sessionResult).error();
     }
-    std::unique_ptr<Detail::VimSession> session = std::move(sessionResult).value();
+    std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto targetMorefResult = inventory.findVm(targetLocator);
     if (!targetMorefResult) {
         return std::move(targetMorefResult).error();
     }
 
     Detail::DiskAttachSpec attachSpec;
-    attachSpec.placeholderVm = Detail::MoRef{"VirtualMachine", spec.placeholderVmId};
+    attachSpec.placeholderVm = Vim::MoRef{"VirtualMachine", spec.placeholderVmId};
     attachSpec.targetVm = targetMorefResult.value();
     attachSpec.controller.controllerType = spec.controller.controllerType;
     attachSpec.controller.busNumber = spec.controller.busNumber;
@@ -80,22 +80,22 @@ Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, cons
 
 Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
 {
-    Detail::VmLocator locator;
+    Vim::VmLocator locator;
     if (vm.moref) {
-        locator = Detail::VmLocator::byMoref(*vm.moref);
+        locator = Vim::VmLocator::byMoref(*vm.moref);
     } else if (vm.uuid) {
-        locator = Detail::VmLocator::byUuid(*vm.uuid);
+        locator = Vim::VmLocator::byUuid(*vm.uuid);
     } else if (vm.inventoryPath) {
-        locator = Detail::VmLocator::byInventoryPath(*vm.inventoryPath);
+        locator = Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
     } else {
         return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
     }
 
-    Detail::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
+    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
                                              params.pinnedThumbprint);
-    Detail::SoapClient soap(transport, params.host);
+    Vim::SoapClient soap(transport, params.host);
 
-    auto sessionResult = Detail::VimSession::open(soap, params.username, params.password);
+    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
     if (!sessionResult) {
         logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
                         sessionResult.error().toString());
@@ -103,7 +103,7 @@ Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
     }
     auto session = std::move(sessionResult).value();
 
-    Detail::VimInventory inventory(*session);
+    Vim::VimInventory inventory(*session);
     auto vmMorefResult = inventory.findVm(locator);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();

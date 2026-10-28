@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "SoapLog.hpp"
-#include "Log.hpp"
+#include "vsphere-soap/Log.hpp"
 
 namespace {
 

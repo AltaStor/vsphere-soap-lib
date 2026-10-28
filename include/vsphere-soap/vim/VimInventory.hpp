@@ -16,11 +16,11 @@
 #include <utility>
 #include <vector>
 
-#include "VimSession.hpp"
-#include "VimTypes.hpp"
-#include "Result.hpp"
+#include "vsphere-soap/vim/VimSession.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
+#include "vsphere-soap/Result.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 using VSphereSoap::Result;
 
@@ -28,9 +28,9 @@ using VSphereSoap::Result;
 /// Exactly one member is set; `findVm` picks the corresponding SearchIndex call (or returns the moref
 /// as-is).
 struct VmLocator {
-    [[nodiscard]] static VmLocator byMoref(std::string moref);
-    [[nodiscard]] static VmLocator byUuid(std::string uuid);
-    [[nodiscard]] static VmLocator byInventoryPath(std::string path);
+    static VmLocator byMoref(std::string moref);
+    static VmLocator byUuid(std::string uuid);
+    static VmLocator byInventoryPath(std::string path);
 
     std::optional<std::string> moref;
     std::optional<std::string> uuid;
@@ -174,7 +174,7 @@ struct VimObjectProperties {
     std::vector<std::pair<std::string, std::string>> properties;
 
     /// The value of `path`, or empty if it wasn't returned.
-    [[nodiscard]] std::string get(std::string_view path) const;
+    std::string get(std::string_view path) const;
 };
 
 class VimInventory {
@@ -237,4 +237,4 @@ private:
 ///
 [[nodiscard]] std::optional<std::pair<std::string, std::string>> parseDatastorePath(std::string_view backing);
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

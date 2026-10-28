@@ -3,9 +3,9 @@
 //
 // Shared vSphere VIM API types and helpers
 
-#include "VimTypes.hpp"
+#include "vsphere-soap/vim/VimTypes.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 pugi::xml_document makeVimRequest(const char* operationName, const MoRef& thisRef)
 {
@@ -32,4 +32,4 @@ MoRef parseMoRef(pugi::xml_node node)
 
 pugi::xml_node returnval(pugi::xml_node responseElement) { return responseElement.child("returnval"); }
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

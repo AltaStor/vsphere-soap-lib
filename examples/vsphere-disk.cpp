@@ -27,13 +27,13 @@
 #include <string>
 #include <vector>
 
-#include "Log.hpp"
-#include "VSphereDatastoreBackend.hpp"
-#include "VSphereDiskImport.hpp"
-#include "VSphereImportSession.hpp"
-#include "VSpherePlacement.hpp"
-#include "VSphereVmNetworkInfo.hpp"
-#include "VmwareSoapDisk.hpp"
+#include "vsphere-soap/Log.hpp"
+#include "vsphere-soap/VSphereDatastoreBackend.hpp"
+#include "vsphere-soap/VSphereDiskImport.hpp"
+#include "vsphere-soap/VSphereImportSession.hpp"
+#include "vsphere-soap/VSpherePlacement.hpp"
+#include "vsphere-soap/VSphereVmNetworkInfo.hpp"
+#include "vsphere-soap/VmwareSoapDisk.hpp"
 
 namespace {
 
@@ -256,8 +256,7 @@ int runImport(const Args& args)
     auto abandon = [&session](const std::string& message) {
         session.stopKeepAlive();
         if (auto destroyed = session.destroyPlaceholderVm(); !destroyed.ok()) {
-            std::cerr << "Warning: VM " << session.vmId() << " could not be removed: " << destroyed.toString()
-                      << "\n";
+            std::cerr << "Warning: VM " << session.vmId() << " could not be removed: " << destroyed.toString() << "\n";
         }
         return fail(message);
     };
@@ -283,8 +282,7 @@ int runImport(const Args& args)
         if (!in) {
             return abandon("read from " + inPath + " failed");
         }
-        // Whole zero chunks are skipped; the keep-alive stops ESXi dropping a connection gone quiet over
-        // them.
+        // Whole zero chunks are skipped; the keep-alive stops ESXi dropping a connection gone quiet over them.
         if (allZero(buffer, length)) {
             if (auto kept = target.keepAliveIfIdle(offset + length); !kept.ok()) {
                 return abandon(kept.toString());

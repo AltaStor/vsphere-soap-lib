@@ -17,8 +17,8 @@
 #include <optional>
 #include <string>
 
-#include "Result.hpp"
-#include "VmwareSoapDisk.hpp" // reuses ConnectParams/VmLocator
+#include "vsphere-soap/Result.hpp"
+#include "vsphere-soap/VmwareSoapDisk.hpp" // reuses ConnectParams/VmLocator
 
 namespace VSphereSoap {
 
