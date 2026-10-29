@@ -275,7 +275,8 @@ Result<std::unique_ptr<HttpsRestClient::Connection>> HttpsRestClient::connect() 
                 return Error(ErrorCode::IoError, "TLS thumbprint pinning failed: " + m_host +
                                                       " presented no peer certificate");
             }
-            const std::string actual = sha1Fingerprint(peerCert);
+            // Compared in the pinned form, without separators.
+            const std::string actual = normalizeThumbprint(sha1Fingerprint(peerCert));
             X509_free(peerCert);
             if (actual != m_pinnedThumbprint) {
                 httpLogger()->warn("TLS thumbprint mismatch for {}: expected {}, got {}", m_host, m_pinnedThumbprint, actual);
@@ -637,6 +638,96 @@ Result<HttpResponse> HttpsRestClient::requestStream(HttpMethod method, const std
         m_connection.reset();
     }
     return result;
+}
+
+Result<HttpResponse> HttpsRestClient::requestGetStream(const std::string& target,
+                                                       const std::vector<HttpHeader>& headers,
+                                                       const HttpBodyChunkConsumer& consumer,
+                                                       std::chrono::seconds timeout) const
+{
+    // A connection of its own: a consumer that stops early leaves the rest of the body unread on it.
+    auto connectResult = connect();
+    if (!connectResult) {
+        return std::move(connectResult).error();
+    }
+    Connection& conn = *connectResult.value();
+
+    const auto start = Clock::now();
+    httpLogger()->debug("-> GET {} (streamed)", target);
+    try {
+        http::request<http::empty_body> req(http::verb::get, target, 11);
+        req.set(http::field::host, m_host);
+        req.set(http::field::user_agent, "vsphere-soap-lib");
+        for (const auto& header : headers) {
+            req.set(header.name, header.value);
+        }
+        if (auto result = runWithTimeout(conn.ioc, conn.stream, kRequestTimeout, "HTTPS write", [&](auto handler) {
+                http::async_write(conn.stream, req, [handler = std::move(handler)](const beast::error_code& ec,
+                                                                                   std::size_t) { handler(ec); });
+            });
+            !result.ok()) {
+            return makeIoError(m_host, 0, "HTTPS write: " + result.toString());
+        }
+
+        beast::flat_buffer buffer;
+        http::response_parser<http::buffer_body> parser;
+        parser.body_limit(boost::none);
+        if (auto result = runWithTimeout(conn.ioc, conn.stream, timeout, "HTTPS read header", [&](auto handler) {
+                http::async_read_header(conn.stream, buffer, parser,
+                                        [handler = std::move(handler)](const beast::error_code& ec, std::size_t) {
+                                            handler(ec);
+                                        });
+            });
+            !result.ok()) {
+            return makeIoError(m_host, 0, "HTTPS read: " + result.toString());
+        }
+
+        HttpResponse response;
+        response.status = parser.get().result_int();
+        for (const auto& field : parser.get()) {
+            response.headers.push_back({std::string(field.name_string()), std::string(field.value())});
+        }
+        const bool streamed = response.status >= 200 && response.status < 300;
+
+        std::vector<std::byte> chunk(1 << 20);
+        std::uint64_t total = 0;
+        while (!parser.is_done()) {
+            parser.get().body().data = chunk.data();
+            parser.get().body().size = chunk.size();
+            if (auto result = runWithTimeout(conn.ioc, conn.stream, timeout, "HTTPS read body", [&](auto handler) {
+                    http::async_read(conn.stream, buffer, parser,
+                                     [handler = std::move(handler)](const beast::error_code& ec, std::size_t) {
+                                         // need_buffer only means the chunk is full.
+                                         handler(ec == http::error::need_buffer ? beast::error_code{} : ec);
+                                     });
+                });
+                !result.ok()) {
+                return makeIoError(m_host, 0, "HTTPS read: " + result.toString());
+            }
+            const std::size_t filled = chunk.size() - parser.get().body().size;
+            total += filled;
+            if (filled == 0) {
+                continue;
+            }
+            if (!streamed) {
+                // An error page: kept, within reason, for the caller's message.
+                if (response.body.size() < 64 * 1024) {
+                    response.body.append(reinterpret_cast<const char*>(chunk.data()), filled);
+                }
+                continue;
+            }
+            if (Error consumed = consumer(std::span<const std::byte>(chunk.data(), filled)); !consumed.ok()) {
+                httpLogger()->debug("GET {} stopped by its consumer after {} bytes", target, total);
+                return consumed;
+            }
+        }
+        httpLogger()->debug("<- {} {} ({} bytes streamed) in {:.1f}ms", response.status, target, total,
+                            elapsedMs(start));
+        return response;
+    } catch (const std::exception& e) {
+        httpLogger()->warn("HTTPS streamed GET {} failed: {}", target, e.what());
+        return makeIoError(m_host, 0, std::string("HTTPS streamed GET failed: ") + e.what());
+    }
 }
 
 } // namespace VSphereSoap::Vim

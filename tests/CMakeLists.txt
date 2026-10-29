@@ -28,6 +28,8 @@ add_executable(vsphere_soap_tests
     test_datastore_path.cpp
     test_cbt_extents.cpp
     test_vmdk_encoder.cpp
+    test_vmdk_decoder.cpp
+    test_export_stream.cpp
     test_grain_assembler.cpp
     test_disk_attach.cpp
     test_vim_list_objects.cpp

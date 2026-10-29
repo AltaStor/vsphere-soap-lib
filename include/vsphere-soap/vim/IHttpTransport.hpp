@@ -65,6 +65,25 @@ public:
                                                                     HttpBodyChunkProducer producer,
                                                                     std::chrono::seconds timeout,
                                                                     std::optional<std::uint64_t> contentLength) = 0;
+
+    /// GET with the body streamed to `consumer`: see `HttpsRestClient::requestGetStream()`.
+    /// The default buffers the whole body through `request()` and hands it over in one chunk, which
+    /// suits a test double; the HTTPS adapter streams it.
+    virtual Result<HttpResponse> requestGetStream(const std::string& target, const std::vector<HttpHeader>& headers,
+                                                  const HttpBodyChunkConsumer& consumer,
+                                                  std::chrono::seconds /*timeout*/)
+    {
+        auto response = request(HttpMethod::Get, target, headers);
+        if (!response || response.value().status < 200 || response.value().status >= 300) {
+            return response;
+        }
+        const std::string& body = response.value().body;
+        if (Error consumed = consumer(std::as_bytes(std::span(body.data(), body.size()))); !consumed.ok()) {
+            return consumed;
+        }
+        response.value().body.clear();
+        return response;
+    }
 };
 
 } // namespace VSphereSoap::Vim

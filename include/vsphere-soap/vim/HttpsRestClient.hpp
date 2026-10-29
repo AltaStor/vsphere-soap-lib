@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,10 @@ enum class HttpMethod {
 /// A `Result` error here aborts the upload and is propagated to `requestPutStream`'s caller as-is.
 ///
 using HttpBodyChunkProducer = std::function<Result<std::vector<std::byte>>()>;
+
+/// Receives a streamed response body chunk by chunk, in order.
+/// A non-ok `Error` stops the transfer and is returned to the caller of `requestGetStream`.
+using HttpBodyChunkConsumer = std::function<Error(std::span<const std::byte>)>;
 
 struct HttpHeader {
     std::string name;
@@ -148,6 +153,16 @@ public:
                                                            const std::vector<HttpHeader>& headers,
                                                            HttpBodyChunkProducer producer, std::chrono::seconds timeout,
                                                            std::optional<std::uint64_t> contentLength = std::nullopt) const;
+
+    /// GET whose body is handed to `consumer` as it arrives instead of being buffered, for a body larger
+    /// than memory such as an export lease's disk stream.
+    /// Only a 2xx body is streamed; any other status comes back in `HttpResponse::body` as usual.
+    /// The streamed response's `body` is empty.
+    /// `timeout` bounds each network read, not the whole transfer.
+    /// Uses a connection of its own, closed afterwards, since a stopped transfer leaves it unusable.
+    ///
+    Result<HttpResponse> requestGetStream(const std::string& target, const std::vector<HttpHeader>& headers,
+                                          const HttpBodyChunkConsumer& consumer, std::chrono::seconds timeout) const;
 
 private:
     /// Shared body of `requestPutStream()`/`requestPostStream()`.

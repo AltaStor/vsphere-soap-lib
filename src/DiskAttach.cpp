@@ -647,17 +647,26 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
     }
     const VimDiskInfo uploadedDisk = placeholderInfo.value().disks.front();
 
-    Result<VimVmInfo> targetInfoBefore = inventory.describeVm(spec.targetVm);
-    if (!targetInfoBefore) {
-        return std::move(targetInfoBefore).error();
+    // Without a target VM the disk is only moved out, to desiredDatastoreDir, and stays unattached.
+    const bool attach = !spec.targetVm.empty();
+    if (!attach && spec.desiredDatastoreDir.empty()) {
+        return Error(ErrorCode::InvalidArgument, "a disk that is not attached needs a destination directory");
     }
-    if (targetInfoBefore.value().powerState != VimPowerState::PoweredOff) {
-        return Error(ErrorCode::InvalidArgument,
-                     "target VM " + spec.targetVm.value +
-                         " must be powered off to attach a disk (hot-add is not supported by this pass)");
-    }
-    if (targetInfoBefore.value().vmPathName.empty()) {
-        return Error(ErrorCode::InvalidFormat, "target VM " + spec.targetVm.value + " has no config.files.vmPathName");
+    VimVmInfo targetInfo;
+    if (attach) {
+        Result<VimVmInfo> targetInfoBefore = inventory.describeVm(spec.targetVm);
+        if (!targetInfoBefore) {
+            return std::move(targetInfoBefore).error();
+        }
+        targetInfo = std::move(targetInfoBefore).value();
+        if (targetInfo.powerState != VimPowerState::PoweredOff) {
+            return Error(ErrorCode::InvalidArgument,
+                         "target VM " + spec.targetVm.value +
+                             " must be powered off to attach a disk (hot-add is not supported by this pass)");
+        }
+        if (targetInfo.vmPathName.empty()) {
+            return Error(ErrorCode::InvalidFormat, "target VM " + spec.targetVm.value + " has no config.files.vmPathName");
+        }
     }
 
     // --- detach from the placeholder (file stays where it is for now) ---
@@ -728,10 +737,10 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
     // relative directory, no leading/trailing '/', possibly empty (datastore root)
     std::string destinationDir;
     if (spec.desiredDatastoreDir.empty()) {
-        const auto targetDir = parseDatastorePath(targetInfoBefore.value().vmPathName);
+        const auto targetDir = parseDatastorePath(targetInfo.vmPathName);
         if (!targetDir) {
             return Error(ErrorCode::InvalidFormat, "could not parse target VM's config.files.vmPathName: " +
-                                                         targetInfoBefore.value().vmPathName);
+                                                         targetInfo.vmPathName);
         }
         // targetDir->second is config.files.vmPathName's relative part, e.g.
         // "import-test-01/import-test-01.vmx": its *directory* is the target VM's own folder,
@@ -768,7 +777,7 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
                          " but its file (" + uploadedDisk.rawFileName +
                          ") could not be moved -- failed to resolve source datacenter: " + sourceDc.error().message());
     }
-    Result<MoRef> destinationDc = inventory.resolveDatacenterMoRef(spec.targetVm);
+    Result<MoRef> destinationDc = attach ? inventory.resolveDatacenterMoRef(spec.targetVm) : sourceDc;
     if (!destinationDc) {
         return Error(ErrorCode::IoError,
                      "disk detached from placeholder VM " + spec.placeholderVm.value +
@@ -805,6 +814,10 @@ Result<DiskAttachResult> attachUploadedDisk(VimSession& session, const DiskAttac
                                 spec.placeholderVm.value, placeholderDir, removed.toString());
             }
         }
+    }
+
+    if (!attach) {
+        return DiskAttachResult{destinationPath, 0, 0};
     }
 
     // --- resolve controller/unit and attach on the target ---

@@ -14,6 +14,7 @@
 
 #include "CbtQuery.hpp"
 #include "DatastorePath.hpp"
+#include "ExportStreamReader.hpp"
 #include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "SnapshotScope.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
@@ -189,16 +190,21 @@ public:
     Impl(std::unique_ptr<Vim::IHttpTransport> transport, std::string host)
         : m_transport(std::move(transport)), m_soap(*m_transport, std::move(host)) {}
 
+    // Declared in the order they are acquired, so they are released in reverse: the lease before the snapshot it
+    // exports, the snapshot before the session that took it.
     std::unique_ptr<Vim::IHttpTransport> m_transport;
     Vim::SoapClient m_soap;
     std::unique_ptr<Vim::VimSession> m_session;
-    std::unique_ptr<Detail::SnapshotScope> m_snapshotScope; // only set when cbtActive_
+    std::unique_ptr<Detail::SnapshotScope> m_snapshotScope; // only when open() took the snapshot itself
+    std::unique_ptr<Detail::ExportStreamReader> m_export;  // only for an exported disk
     Vim::MoRef m_vm;
     Vim::VimDiskInfo m_disk;
     std::string m_getPath;
     std::string m_getQuery;
     std::uint64_t m_virtualSizeBytes = 0;
     std::vector<Detail::Extent> m_allocatedExtents; // sorted by start; only meaningful when cbtActive_
+    std::vector<DiskExtent> m_dataExtents;
+    std::string m_changeId;
     bool m_cbtActive = false;
     std::string m_cbtUnavailableReason;
     std::uint64_t m_bytesReadLogged = 0; // watermark for the throttled progress log in readAt()
@@ -209,6 +215,40 @@ namespace {
 // trace-per-call would be too noisy even for SPDLOG_LEVEL=trace, so this only fires once per this many
 // bytes crossed.
 constexpr std::uint64_t kReadProgressLogIntervalBytes = 64ull * 1024 * 1024;
+
+// Whether `path` ("dir/name.vmdk") is the disk's current file or one of its snapshot chain.
+bool diskHasFile(const Vim::VimDiskInfo& disk, const std::string& path)
+{
+    if (disk.datastoreRelativePath == path) {
+        return true;
+    }
+    return std::any_of(disk.parents.begin(), disk.parents.end(), [&](const Vim::VimDiskBacking& parent) {
+        const auto parsed = Vim::parseDatastorePath(parent.fileName);
+        return parsed && parsed->second == path;
+    });
+}
+
+// "<controller type><bus>:<unit>", the tail of the disk's key in an export lease.
+std::string controllerSlot(const Vim::VimVmInfo& vm, const Vim::VimDiskInfo& disk)
+{
+    for (const auto& controller : vm.controllers) {
+        if (controller.key == disk.controllerKey) {
+            return controller.deviceType + std::to_string(controller.busNumber) + ":" +
+                   std::to_string(disk.unitNumber);
+        }
+    }
+    return {};
+}
+
+std::vector<DiskExtent> toDiskExtents(const std::vector<Detail::Extent>& extents)
+{
+    std::vector<DiskExtent> out;
+    out.reserve(extents.size());
+    for (const auto& extent : Detail::mergeExtents(extents)) {
+        out.push_back(DiskExtent{extent.start, extent.length});
+    }
+    return out;
+}
 } // namespace
 
 Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams& params, const VmLocator& vm,
@@ -216,6 +256,9 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
 {
     if (!disk.key && !disk.datastorePath) {
         return Error(ErrorCode::InvalidArgument, "DiskSelector has neither key nor datastorePath set");
+    }
+    if (!params.cbtChangeId.empty() && !params.useCbt) {
+        return Error(ErrorCode::InvalidArgument, "a CBT change id needs useCbt");
     }
     Vim::VmLocator internalLocator;
     if (vm.moref) {
@@ -258,14 +301,17 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     // flat file this backend reads from. describeVm() below reads and caches that backing once; cleaning
     // up *after* it (e.g. inside a later SnapshotScope::create() call) is too late to fix what this
     // open() call itself will read from.
+    // Not needed with the caller's own snapshot, since none of ours is taken then.
     //
     const std::string snapshotName =
         params.cbtSnapshotName.empty() ? std::string(Detail::kDefaultCbtBaselineSnapshotName) : params.cbtSnapshotName;
-    if (auto cleanup = Detail::SnapshotScope::removeIfExists(*impl->m_session, impl->m_vm, snapshotName);
-        !cleanup.ok()) {
-        logger()->warn("stale-snapshot cleanup for {} {} failed: {} -- proceeding anyway; disk reads may target "
-                        "a leftover snapshot's delta file if one is still present",
-                        impl->m_vm.type, impl->m_vm.value, cleanup.toString());
+    if (params.snapshotMoref.empty()) {
+        if (auto cleanup = Detail::SnapshotScope::removeIfExists(*impl->m_session, impl->m_vm, snapshotName);
+            !cleanup.ok()) {
+            logger()->warn("stale-snapshot cleanup for {} {} failed: {} -- proceeding anyway; disk reads may target "
+                            "a leftover snapshot's delta file if one is still present",
+                            impl->m_vm.type, impl->m_vm.value, cleanup.toString());
+        }
     }
 
     auto vmInfoResult = inventory.describeVm(impl->m_vm);
@@ -275,19 +321,16 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     const Vim::VimVmInfo& vmInfo = vmInfoResult.value();
     logger()->debug("VM '{}' has {} disk(s)", vmInfo.name, vmInfo.disks.size());
 
-    if (vmInfo.powerState != Vim::VimPowerState::PoweredOff) {
+    if (vmInfo.powerState != Vim::VimPowerState::PoweredOff && vmInfo.powerState != Vim::VimPowerState::PoweredOn) {
         return Error(ErrorCode::InvalidArgument, "VM '" + vmInfo.name +
-                                                      "' is not powered off; this backend only supports "
-                                                      "powered-off source VMs");
+                                                      "' is suspended or in an unknown power state; only powered-off "
+                                                      "and running VMs can be read");
     }
 
     const Vim::VimDiskInfo* matchedDisk = nullptr;
     for (const auto& candidate : vmInfo.disks) {
-        if (disk.key && candidate.key == *disk.key) {
-            matchedDisk = &candidate;
-            break;
-        }
-        if (disk.datastorePath && candidate.datastoreRelativePath == *disk.datastorePath) {
+        if ((disk.key && candidate.key == *disk.key) ||
+            (disk.datastorePath && diskHasFile(candidate, *disk.datastorePath))) {
             matchedDisk = &candidate;
             break;
         }
@@ -305,50 +348,116 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
                          "; only file-backed VMDK disks are supported, not RDM/raw-device-mapped disks");
     }
 
-    auto dcNameResult = inventory.resolveDatacenterName(impl->m_vm);
-    if (!dcNameResult) {
-        return std::move(dcNameResult).error();
+    // Direct reads need the files unlocked and the data in one flat file; anything else goes through an export.
+    const bool exported = !params.snapshotMoref.empty() || vmInfo.powerState == Vim::VimPowerState::PoweredOn ||
+                          !impl->m_disk.parents.empty();
+
+    Detail::CbtQuery cbt(*impl->m_session);
+    const Error eligible = params.useCbt ? cbt.checkEligible(vmInfo, impl->m_disk)
+                                         : Error(ErrorCode::NotImplemented, "CBT was not requested");
+    if (!params.cbtChangeId.empty() && !eligible.ok()) {
+        return Error(ErrorCode::NotImplemented, "an incremental read needs CBT: " + eligible.message());
     }
 
-    if (params.useCbt) {
-        Detail::CbtQuery cbt(*impl->m_session);
-        auto eligibleResult = cbt.checkEligible(vmInfo, impl->m_disk);
-        if (!eligibleResult.ok()) {
-            impl->m_cbtUnavailableReason = eligibleResult.message();
-        } else {
-            auto snapshotResult =
-                Detail::SnapshotScope::create(*impl->m_session, impl->m_vm, snapshotName, /*quiesce=*/false);
-            if (!snapshotResult) {
-                impl->m_cbtUnavailableReason = "failed to create CBT baseline snapshot: " + snapshotResult.error().message();
-            } else {
-                impl->m_snapshotScope = std::move(snapshotResult).value();
-                auto extentsResult = cbt.queryAllocatedExtents(impl->m_vm, impl->m_snapshotScope->snapshot(),
-                                                                  impl->m_disk.key, impl->m_virtualSizeBytes);
-                if (!extentsResult) {
-                    impl->m_cbtUnavailableReason = "failed to query allocated extents: " + extentsResult.error().message();
-                    impl->m_snapshotScope.reset();
-                } else {
-                    impl->m_allocatedExtents = std::move(extentsResult).value();
-                    std::sort(impl->m_allocatedExtents.begin(), impl->m_allocatedExtents.end(),
-                              [](const Detail::Extent& a, const Detail::Extent& b) { return a.start < b.start; });
-                    impl->m_cbtActive = true;
-                }
+    // The snapshot the disk is read at: the caller's, or one taken here when an export or CBT needs it.
+    Vim::MoRef snapshot;
+    if (!params.snapshotMoref.empty()) {
+        snapshot = Vim::MoRef{"VirtualMachineSnapshot", params.snapshotMoref};
+    } else if (exported || eligible.ok()) {
+        const bool quiesce = params.quiesce && vmInfo.powerState == Vim::VimPowerState::PoweredOn;
+        auto snapshotResult = Detail::SnapshotScope::create(*impl->m_session, impl->m_vm, snapshotName, quiesce);
+        if (!snapshotResult) {
+            if (exported) {
+                return Error(snapshotResult.error().code(), "failed to snapshot VM '" + vmInfo.name +
+                                                                "' for export: " + snapshotResult.error().message());
             }
+            impl->m_cbtUnavailableReason =
+                "failed to create CBT baseline snapshot: " + snapshotResult.error().message();
+        } else {
+            impl->m_snapshotScope = std::move(snapshotResult).value();
+            snapshot = impl->m_snapshotScope->snapshot();
         }
     }
 
-    auto targetResult =
-        resolveGetTarget(*impl->m_transport, impl->m_soap.sessionCookie(), dcNameResult.value(), impl->m_disk);
-    if (!targetResult) {
-        logger()->warn("resolving ranged-GET target for disk '{}' on {} failed: {}", impl->m_disk.key, params.host,
-                        targetResult.error().toString());
-        return std::move(targetResult).error();
+    // The disk as the snapshot holds it: its size there, and the change id the next incremental is read against.
+    if (!snapshot.empty()) {
+        auto snapshotDisks = inventory.describeSnapshotDisks(snapshot);
+        if (!snapshotDisks) {
+            return std::move(snapshotDisks).error();
+        }
+        const auto atSnapshot = std::find_if(snapshotDisks.value().begin(), snapshotDisks.value().end(),
+                                             [&](const Vim::VimDiskInfo& d) { return d.key == impl->m_disk.key; });
+        if (atSnapshot == snapshotDisks.value().end()) {
+            return Error(ErrorCode::InvalidArgument, "snapshot " + snapshot.value + " has no disk '" +
+                                                         impl->m_disk.key + "'");
+        }
+        impl->m_virtualSizeBytes = atSnapshot->capacityBytes;
+        impl->m_changeId = atSnapshot->changeId.value_or("");
     }
-    impl->m_getPath = std::move(targetResult.value().first);
-    impl->m_getQuery = std::move(targetResult.value().second);
 
-    logger()->info("disk '{}' opened on {} ({} bytes, cbt={})", impl->m_disk.key, params.host,
-                    impl->m_virtualSizeBytes, impl->m_cbtActive);
+    if (!eligible.ok()) {
+        if (impl->m_cbtUnavailableReason.empty() && params.useCbt) {
+            impl->m_cbtUnavailableReason = eligible.message();
+        }
+    } else if (!snapshot.empty()) {
+        auto allocated = cbt.queryAllocatedExtents(impl->m_vm, snapshot, impl->m_disk.key, impl->m_virtualSizeBytes);
+        if (!allocated) {
+            if (!params.cbtChangeId.empty()) {
+                return Error(allocated.error().code(),
+                             "failed to query allocated extents: " + allocated.error().message());
+            }
+            impl->m_cbtUnavailableReason = "failed to query allocated extents: " + allocated.error().message();
+        } else {
+            impl->m_allocatedExtents = Detail::mergeExtents(std::move(allocated).value());
+            impl->m_cbtActive = true;
+        }
+    }
+
+    if (!params.cbtChangeId.empty()) {
+        auto changed = cbt.queryChangedExtents(impl->m_vm, snapshot, impl->m_disk.key, params.cbtChangeId,
+                                               impl->m_virtualSizeBytes);
+        if (!changed) {
+            return Error(changed.error().code(), "failed to query the changes since " + params.cbtChangeId + ": " +
+                                                     changed.error().message());
+        }
+        impl->m_dataExtents = toDiskExtents(changed.value());
+    } else if (impl->m_cbtActive) {
+        impl->m_dataExtents = toDiskExtents(impl->m_allocatedExtents);
+    } else if (impl->m_virtualSizeBytes > 0) {
+        impl->m_dataExtents = {DiskExtent{0, impl->m_virtualSizeBytes}};
+    }
+    if (!impl->m_cbtActive) {
+        impl->m_changeId.clear(); // without CBT nothing can be read against it later
+    }
+
+    if (exported) {
+        auto exportResult = Detail::ExportStreamReader::open(*impl->m_session, params.host, snapshot,
+                                                             controllerSlot(vmInfo, impl->m_disk),
+                                                             impl->m_virtualSizeBytes, params.verifyTlsCertificate);
+        if (!exportResult) {
+            logger()->warn("export of disk '{}' on {} failed: {}", impl->m_disk.key, params.host,
+                           exportResult.error().toString());
+            return std::move(exportResult).error();
+        }
+        impl->m_export = std::move(exportResult).value();
+    } else {
+        auto dcNameResult = inventory.resolveDatacenterName(impl->m_vm);
+        if (!dcNameResult) {
+            return std::move(dcNameResult).error();
+        }
+        auto targetResult =
+            resolveGetTarget(*impl->m_transport, impl->m_soap.sessionCookie(), dcNameResult.value(), impl->m_disk);
+        if (!targetResult) {
+            logger()->warn("resolving ranged-GET target for disk '{}' on {} failed: {}", impl->m_disk.key, params.host,
+                            targetResult.error().toString());
+            return std::move(targetResult).error();
+        }
+        impl->m_getPath = std::move(targetResult.value().first);
+        impl->m_getQuery = std::move(targetResult.value().second);
+    }
+
+    logger()->info("disk '{}' opened on {} ({} bytes, {}, cbt={})", impl->m_disk.key, params.host,
+                    impl->m_virtualSizeBytes, exported ? "exported" : "direct", impl->m_cbtActive);
     return std::unique_ptr<VmwareSoapDisk>(new VmwareSoapDisk(std::move(impl)));
 }
 
@@ -358,6 +467,9 @@ VmwareSoapDisk::~VmwareSoapDisk() = default;
 
 Result<std::uint64_t> VmwareSoapDisk::readAt(std::uint64_t offset, std::span<std::byte> out)
 {
+    if (m_impl->m_export) {
+        return m_impl->m_export->readAt(offset, out);
+    }
     if (out.empty() || offset >= m_impl->m_virtualSizeBytes) {
         return std::uint64_t{0};
     }
@@ -446,6 +558,9 @@ Result<bool> VmwareSoapDisk::isZero(std::uint64_t offset, std::uint64_t length)
     return true;
 }
 
+const std::vector<DiskExtent>& VmwareSoapDisk::dataExtents() const noexcept { return m_impl->m_dataExtents; }
+const std::string& VmwareSoapDisk::changeId() const noexcept { return m_impl->m_changeId; }
+bool VmwareSoapDisk::exported() const noexcept { return m_impl->m_export != nullptr; }
 bool VmwareSoapDisk::cbtActive() const noexcept { return m_impl->m_cbtActive; }
 const std::string& VmwareSoapDisk::cbtUnavailableReason() const noexcept { return m_impl->m_cbtUnavailableReason; }
 

@@ -51,6 +51,13 @@ public:
         return m_client.requestPostStream(target, headers, std::move(producer), timeout, contentLength);
     }
 
+    Result<HttpResponse> requestGetStream(const std::string& target, const std::vector<HttpHeader>& headers,
+                                          const HttpBodyChunkConsumer& consumer,
+                                          std::chrono::seconds timeout) override
+    {
+        return m_client.requestGetStream(target, headers, consumer, timeout);
+    }
+
 private:
     VSphereSoap::Vim::HttpsRestClient m_client;
 };

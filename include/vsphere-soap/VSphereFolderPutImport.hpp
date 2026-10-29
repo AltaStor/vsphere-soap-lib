@@ -78,24 +78,47 @@ struct VSphereFolderPutPrepResult {
     /// The descriptor's own "[datastore] relative/path.vmdk"; this is the disk to attach, and what
     /// `finishFolderPutImport` needs.
     std::string descriptorDatastorePath;
+    /// The size the flat file is written with: the spec's for a new disk, the disk's own for an overwrite.
+    std::uint64_t virtualSizeBytes = 0;
     /// See `VSphereFolderPutSessionHandle`'s own doc comment: keep this alive (i.e. keep the whole
     /// `VSphereFolderPutPrepResult` in scope) until after streaming the flat extent completes.
     std::unique_ptr<VSphereFolderPutSessionHandle> keepAlive;
 };
 
 /// Connects, resolves the target VM (fails if not powered off), builds the destination paths inside its
-/// own folder, and PUTs the small monolithicFlat text descriptor (not the flat extent itself: that could
+/// own folder, checks that neither file exists yet, and PUTs the small monolithicFlat text descriptor (not the flat extent itself: that could
 /// be many GB and has no business being buffered into a `std::string` the way this small PUT is).
 /// The returned `flatPutUrl`/`sessionCookie` are then handed to a fresh
 /// `VSphereFolderPutBackend::open()` call (a separate HTTPS connection, matching how the primary path's
 /// lease device URL and SOAP control plane are always separate connections too) to stream the real data.
 ///
-/// Fails with `ErrorCode::InvalidArgument` if the target VM is powered on or
-/// `spec.fileName`/`spec.virtualSizeBytes` is empty/zero; `ErrorCode::IoError` on
-/// connection/auth/transport failure.
+/// Fails with `ErrorCode::InvalidArgument` if the target VM is powered on, `spec.fileName`/`spec.virtualSizeBytes`
+/// is empty/zero, or a file of that name already exists; `ErrorCode::IoError` on connection/auth/transport failure.
 ///
 VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutImport(
     const ConnectParams& params, const VSphereFolderPutPrepSpec& spec);
+
+/// Gets an existing disk of a powered-off VM ready to be overwritten in place: the whole flat file is replaced by
+/// one `VSphereFolderPutBackend` PUT, and the disk keeps its device, descriptor and controller slot.
+/// The returned `flatPutUrl` is the disk's own flat file and `virtualSizeBytes` its capacity.
+/// Fails with `ErrorCode::InvalidArgument` when the VM is not powered off, the selector matches no disk, or the VM
+/// has snapshots of the disk (overwriting a base under its deltas would corrupt them); `ErrorCode::NotImplemented`
+/// when the disk is not a flat file, such as a vSAN or vVols disk.
+/// The disk is fully allocated afterwards: every byte is written, zeros included.
+///
+VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams& params,
+                                                                          const VmLocator& vm,
+                                                                          const DiskSelector& disk);
+
+/// After an overwrite: resets the VM's changed block tracking when it is on, since ESXi did not see the write and
+/// an incremental against an earlier change id would miss it.
+/// Changing CBT only takes effect at a snapshot, so CBT is turned off, a snapshot is taken and removed, CBT is
+/// turned back on, and a snapshot is taken and removed again.
+/// CBT is a setting of the whole VM, so the change ids of its other disks are reset too: their next backup has to
+/// be a full one.
+/// Fails with `ErrorCode::IoError` when a step fails; the error says which.
+///
+VSphereSoap::Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm);
 
 /// Attaches the already-fully-written file at `descriptorDatastorePath` (from `prepareFolderPutImport`'s
 /// result, after the caller's own `VSphereFolderPutBackend` stream succeeded) to the target VM: a single

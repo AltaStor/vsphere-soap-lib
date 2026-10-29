@@ -6,8 +6,14 @@
 #include "DatastorePath.hpp"
 
 #include <cctype>
+#include <vector>
+
+#include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
+
+using VSphereSoap::Error;
+using VSphereSoap::ErrorCode;
 
 std::string urlEncode(std::string_view in)
 {
@@ -78,6 +84,53 @@ std::optional<std::string> parseFlatExtentFileName(std::string_view descriptor)
         return std::string(line.substr(firstQuote + 1, secondQuote - firstQuote - 1));
     }
     return std::nullopt;
+}
+
+std::optional<std::string> parseDescriptorCreateType(std::string_view descriptor)
+{
+    constexpr std::string_view kKey = "createType=";
+    std::size_t pos = 0;
+    while (pos < descriptor.size()) {
+        const auto eol = descriptor.find('\n', pos);
+        std::string_view line =
+            descriptor.substr(pos, eol == std::string_view::npos ? std::string_view::npos : eol - pos);
+        pos = eol == std::string_view::npos ? descriptor.size() : eol + 1;
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            line.remove_prefix(1);
+        }
+        if (!line.starts_with(kKey)) {
+            continue;
+        }
+        line.remove_prefix(kKey.size());
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
+            line.remove_suffix(1);
+        }
+        if (line.size() >= 2 && line.front() == '"' && line.back() == '"') {
+            line = line.substr(1, line.size() - 2);
+        }
+        return std::string(line);
+    }
+    return std::nullopt;
+}
+
+Result<bool> datastoreFileExists(Vim::IHttpTransport& transport, const std::string& target, const std::string& cookie)
+{
+    std::vector<Vim::HttpHeader> headers{{"Range", "bytes=0-0"}};
+    if (!cookie.empty()) {
+        headers.push_back({"Cookie", cookie});
+    }
+    auto response = transport.request(Vim::HttpMethod::Get, target, headers);
+    if (!response) {
+        return std::move(response).error();
+    }
+    const unsigned status = response.value().status;
+    if (status == 404) {
+        return false;
+    }
+    if (status >= 200 && status < 300) {
+        return true;
+    }
+    return Error(ErrorCode::IoError, "checking whether " + target + " exists failed: HTTP " + std::to_string(status));
 }
 
 } // namespace VSphereSoap::Detail

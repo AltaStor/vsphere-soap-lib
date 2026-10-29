@@ -31,6 +31,9 @@ struct Extent {
     std::uint64_t length = 0;
 };
 
+/// Sorts `extents` and joins those that overlap or touch, dropping empty ones.
+std::vector<Extent> mergeExtents(std::vector<Extent> extents);
+
 class CbtQuery {
 public:
     explicit CbtQuery(VimSession& session);

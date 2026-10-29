@@ -44,6 +44,13 @@ enum class VimPowerState {
     Suspended,
 };
 
+/// One file of a disk's backing chain: the disk's own backing or one of its parents.
+struct VimDiskBacking {
+    std::string fileName;        ///< "[datastore] dir/name.vmdk", the descriptor.
+    std::string backingType;     ///< e.g. "VirtualDiskFlatVer2BackingInfo".
+    std::string deltaDiskFormat; ///< backing.deltaDiskFormat on a delta, e.g. "seSparseFormat"; empty on a base.
+};
+
 /// One `VirtualDisk` device from `config.hardware.device`.
 struct VimDiskInfo {
     std::string key; ///< e.g. "2000": VimVirtualMachine::disks()' device key, stable across calls.
@@ -75,6 +82,13 @@ struct VimDiskInfo {
     /// backing.changeId, present only once CBT has a baseline for this disk (empty/absent otherwise,
     /// including "CBT enabled but no snapshot has ever been taken yet").
     std::optional<std::string> changeId;
+
+    /// backing.deltaDiskFormat when this backing is a snapshot delta; empty on a base disk.
+    std::string deltaDiskFormat;
+
+    /// The backing's parents from `backing.parent`, nearest first and the base disk last.
+    /// Empty when the disk has no snapshot deltas.
+    std::vector<VimDiskBacking> parents;
 
     /// The device this disk is attached to and its SCSI/SATA/NVMe/IDE unit number on that controller:
     /// `0` for both is a valid real value (key/unit `0` exist), so callers needing "was this populated"
@@ -197,6 +211,12 @@ public:
     /// an unexpected response shape.
     ///
     Result<VimVmInfo> describeVm(const MoRef& vm);
+
+    /// The disks of a snapshot as they were when it was taken, from its `config.hardware.device`.
+    /// Their `changeId` is what an incremental read after that snapshot is taken against.
+    /// Fails with `ErrorCode::InvalidArgument` if `snapshot` doesn't exist.
+    ///
+    Result<std::vector<VimDiskInfo>> describeSnapshotDisks(const MoRef& snapshot);
 
     /// Walks `parent` upward from `entity` (polymorphically, via the `ManagedEntity` base type's
     /// `name`/`parent` properties) until reaching a `Datacenter`, returning its name: the `dcPath`

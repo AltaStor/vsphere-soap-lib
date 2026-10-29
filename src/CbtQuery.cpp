@@ -5,12 +5,33 @@
 
 #include "CbtQuery.hpp"
 
+#include <algorithm>
+
 #include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Detail {
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
+
+std::vector<Extent> mergeExtents(std::vector<Extent> extents)
+{
+    std::sort(extents.begin(), extents.end(), [](const Extent& a, const Extent& b) { return a.start < b.start; });
+
+    std::vector<Extent> merged;
+    for (const Extent& extent : extents) {
+        if (extent.length == 0) {
+            continue;
+        }
+        if (!merged.empty() && extent.start <= merged.back().start + merged.back().length) {
+            Extent& last = merged.back();
+            last.length = std::max(last.start + last.length, extent.start + extent.length) - last.start;
+        } else {
+            merged.push_back(extent);
+        }
+    }
+    return merged;
+}
 
 CbtQuery::CbtQuery(VimSession& session) : m_session(session) {}
 

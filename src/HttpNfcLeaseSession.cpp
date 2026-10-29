@@ -242,20 +242,6 @@ std::string buildOvfDescriptor(const ImportVmSpec& spec)
     return ovf.str();
 }
 
-/// Substitutes vCenter's `*` device-URL host placeholder for the real host this session is talking to,
-/// e.g. "https://*:443/foo" -> "https://192.168.1.1:443/foo".
-/// Leaves the URL untouched if it doesn't contain the placeholder (a direct-to-ESXi lease already has
-/// a real hostname/IP there).
-///
-std::string substituteHostPlaceholder(const std::string& url, const std::string& realHost)
-{
-    const auto pos = url.find("://*");
-    if (pos == std::string::npos) {
-        return url;
-    }
-    return url.substr(0, pos + 3) + realHost + url.substr(pos + 4);
-}
-
 } // namespace
 
 HttpNfcLeaseSession::HttpNfcLeaseSession(VimSession& session, MoRef lease, MoRef vm,
@@ -324,7 +310,19 @@ Error HttpNfcLeaseSession::complete()
     return {};
 }
 
-namespace {
+/// Substitutes vCenter's `*` device-URL host placeholder for the real host this session is talking to,
+/// e.g. "https://*:443/foo" -> "https://192.168.1.1:443/foo".
+/// Leaves the URL untouched if it doesn't contain the placeholder (a direct-to-ESXi lease already has
+/// a real hostname/IP there).
+///
+std::string substituteHostPlaceholder(const std::string& url, const std::string& realHost)
+{
+    const auto pos = url.find("://*");
+    if (pos == std::string::npos) {
+        return url;
+    }
+    return url.substr(0, pos + 3) + realHost + url.substr(pos + 4);
+}
 
 /// `SnapshotScope::waitForTask`'s polling shape, adapted for `HttpNfcLease.state`/`info` instead of
 /// `Task.info.state`/`info.result`: see that function's own comments for the retry/backoff reasoning,
@@ -398,6 +396,8 @@ Result<pugi::xml_node> waitForLeaseReady(VimSession& session, const MoRef& lease
         backoff = std::min(backoff * 2, kMaxBackoff);
     }
 }
+
+namespace {
 
 /// OvfManager.CreateImportSpec for `spec`: the first half of `begin()` and all of `validate()`.
 /// Returns the whole response document, which holds the importSpec `begin()` hands to ImportVApp.
@@ -628,7 +628,7 @@ Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSessi
         logger()->info("HttpNfcLease device URL: key='{}' importKey='{}' disk='{}' url='{}'", key, importKey, isDisk,
                         url);
         if (isDisk) {
-            diskDeviceUrls.push_back(LeaseDeviceUrl{importKey, url});
+            diskDeviceUrls.push_back(LeaseDeviceUrl{importKey, url, du.child("sslThumbprint").text().as_string()});
         }
     }
     if (diskDeviceUrls.size() != spec.disks.size()) {

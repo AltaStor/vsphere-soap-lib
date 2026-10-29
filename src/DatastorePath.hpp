@@ -5,15 +5,18 @@
 
 #pragma once
 
-// Pure, server-free helpers for the datastore HTTP access path ("/folder/<path>?dcPath=...&dsName=..."):
+// Helpers for the datastore HTTP access path ("/folder/<path>?dcPath=...&dsName=..."):
 // URL encoding, deriving a VMDK descriptor's "-flat.vmdk" extent name, and parsing the extent file name
 // out of a descriptor's text when that derived name turns out to be wrong.
-// Split out of VmwareSoapDisk.cpp specifically so these are unit-testable without a live server (mirrors
-// VmwareVirtualMachine::resolveDatastorePath's existing style).
+// Split out of VmwareSoapDisk.cpp so they are unit-testable without a live server; the one that asks
+// the server goes through the transport seam.
 
 #include <optional>
 #include <string>
 #include <string_view>
+
+#include "vsphere-soap/Result.hpp"
+#include "vsphere-soap/vim/IHttpTransport.hpp"
 
 namespace VSphereSoap::Detail {
 
@@ -38,5 +41,13 @@ std::string siblingPath(std::string_view originalRelativePath, std::string_view 
 /// Returns `std::nullopt` if no extent line is found.
 ///
 [[nodiscard]] std::optional<std::string> parseFlatExtentFileName(std::string_view descriptor);
+
+/// The `createType` of a VMDK descriptor, e.g. "vmfs", "monolithicFlat" or "seSparse"; nullopt without one.
+std::optional<std::string> parseDescriptorCreateType(std::string_view descriptor);
+
+/// Whether the datastore file at `target` ("/folder/<path>?dcPath=...&dsName=...") exists, asked with a one-byte
+/// ranged GET authenticated by `cookie`.
+/// Fails with `ErrorCode::IoError` when the answer is neither the file nor a 404.
+Result<bool> datastoreFileExists(Vim::IHttpTransport& transport, const std::string& target, const std::string& cookie);
 
 } // namespace VSphereSoap::Detail

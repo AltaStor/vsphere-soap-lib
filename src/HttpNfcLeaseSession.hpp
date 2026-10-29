@@ -160,7 +160,17 @@ struct LeaseDeviceUrl {
     /// The upload URL with vCenter's `*` host placeholder (if any) already substituted for the real host
     /// this session is connected to: ready to hand to an HTTPS client as-is.
     std::string url;
+    /// SHA-1 of that host's certificate, as the lease reports it; empty when it reports none.
+    std::string sslThumbprint;
 };
+
+/// vCenter's `*` device-URL host placeholder replaced by `realHost`, e.g. "https://*:443/foo" -> "https://h:443/foo".
+/// A URL without the placeholder (a lease served by ESXi directly) comes back unchanged.
+std::string substituteHostPlaceholder(const std::string& url, const std::string& realHost);
+
+/// Polls `lease` until it is ready and returns its `HttpNfcLeaseInfo`, copied into `storage`.
+/// Fails with `ErrorCode::IoError` when the lease reports an error or is not ready within five minutes.
+Result<pugi::xml_node> waitForLeaseReady(VimSession& session, const MoRef& lease, pugi::xml_document& storage);
 
 /// RAII owner of one `HttpNfcLease`: `begin()` builds the OVF descriptor, calls `CreateImportSpec` then
 /// `ImportVApp`, and polls (`RetrievePropertiesEx` on the lease, mirroring

@@ -143,6 +143,17 @@ void parseDevices(pugi::xml_node deviceArrayVal, std::vector<VimDiskInfo>& disks
             disk.changeId = changeId.text().as_string();
         }
 
+        disk.deltaDiskFormat = backing.child("deltaDiskFormat").text().as_string();
+        for (pugi::xml_node parent = backing.child("parent"); parent; parent = parent.child("parent")) {
+            VimDiskBacking link;
+            link.fileName = parent.child("fileName").text().as_string();
+            if (const pugi::xml_attribute parentType = parent.attribute("xsi:type")) {
+                link.backingType = parentType.as_string();
+            }
+            link.deltaDiskFormat = parent.child("deltaDiskFormat").text().as_string();
+            disk.parents.push_back(std::move(link));
+        }
+
         if (auto parsed = parseDatastorePath(disk.rawFileName)) {
             disk.datastoreName = std::move(parsed->first);
             disk.datastoreRelativePath = std::move(parsed->second);
@@ -470,6 +481,43 @@ Result<VimVmInfo> VimInventory::describeVm(const MoRef& vm)
     }
     resolveDistributedPortgroupDetails(m_session, info.networkAdapters);
     return info;
+}
+
+Result<std::vector<VimDiskInfo>> VimInventory::describeSnapshotDisks(const MoRef& snapshot)
+{
+    pugi::xml_document request = makeVimRequest("RetrievePropertiesEx", m_session.propertyCollector());
+    pugi::xml_node op = request.document_element();
+    pugi::xml_node specSet = op.append_child("specSet");
+    pugi::xml_node propSet = specSet.append_child("propSet");
+    propSet.append_child("type").text() = "VirtualMachineSnapshot";
+    propSet.append_child("all").text() = "false";
+    propSet.append_child("pathSet").text() = "config.hardware.device";
+    pugi::xml_node objectSet = specSet.append_child("objectSet");
+    pugi::xml_node obj = objectSet.append_child("obj");
+    obj.append_attribute("type") = snapshot.type.c_str();
+    obj.text() = snapshot.value.c_str();
+    op.append_child("options");
+
+    bool found = false;
+    std::vector<VimDiskInfo> disks;
+    std::vector<VimControllerInfo> controllers;
+    std::vector<VimNetworkAdapterInfo> networkAdapters;
+    const auto onObject = [&](pugi::xml_node objectContent) {
+        found = true;
+        for (pugi::xml_node prop = objectContent.child("propSet"); prop; prop = prop.next_sibling("propSet")) {
+            if (std::string_view(prop.child("name").text().as_string()) == "config.hardware.device") {
+                parseDevices(prop.child("val"), disks, controllers, networkAdapters);
+            }
+        }
+    };
+    if (Error retrieved = retrievePropertiesPaged(m_session, op, onObject); !retrieved.ok()) {
+        return retrieved;
+    }
+
+    if (!found) {
+        return Error(ErrorCode::InvalidArgument, "no such VirtualMachineSnapshot: " + snapshot.value);
+    }
+    return disks;
 }
 
 namespace {

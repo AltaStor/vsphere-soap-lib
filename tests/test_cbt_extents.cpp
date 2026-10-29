@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "CbtQuery.hpp"
+#include "vsphere-soap/vim/VimInventory.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "vsphere-soap/vim/VimSession.hpp"
 #include "fake_http_transport.hpp"
@@ -217,6 +218,54 @@ TEST(CbtQueryLoopTest, FailsRatherThanLoopingForeverOnNoProgress)
     auto result = cbt.queryAllocatedExtents(vm, snapshot, "2000", 10'000'000);
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().code(), VSphereSoap::ErrorCode::InvalidFormat);
+}
+
+TEST(MergeExtentsTest, SortsAndJoinsOverlappingAndTouchingExtents)
+{
+    const auto merged = mergeExtents({{100, 50}, {0, 10}, {10, 20}, {140, 30}, {300, 0}, {200, 10}});
+    ASSERT_EQ(merged.size(), 3u);
+    EXPECT_EQ(merged[0].start, 0u);
+    EXPECT_EQ(merged[0].length, 30u);
+    EXPECT_EQ(merged[1].start, 100u);
+    EXPECT_EQ(merged[1].length, 70u);
+    EXPECT_EQ(merged[2].start, 200u);
+    EXPECT_EQ(merged[2].length, 10u);
+}
+
+TEST(DescribeSnapshotDisksTest, ReadsTheDiskChainAndChangeIdAtTheSnapshot)
+{
+    SoapFixture fixture;
+    scriptSessionBootstrap(fixture.transport);
+    fixture.transport.queueForSoapAction(
+        "urn:vim25/RetrievePropertiesEx",
+        xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" "
+                    "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><soapenv:Body>"
+                    "<RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
+                    "<obj type=\"VirtualMachineSnapshot\">snapshot-2</obj>"
+                    "<propSet><name>config.hardware.device</name><val>"
+                    "<VirtualDevice xsi:type=\"VirtualDisk\"><key>2000</key><capacityInBytes>1048576</capacityInBytes>"
+                    "<backing xsi:type=\"VirtualDiskFlatVer2BackingInfo\">"
+                    "<fileName>[ds] vm/vm-000001.vmdk</fileName><changeId>52 aa/7</changeId>"
+                    "<deltaDiskFormat>seSparseFormat</deltaDiskFormat>"
+                    "<parent xsi:type=\"VirtualDiskFlatVer2BackingInfo\"><fileName>[ds] vm/vm.vmdk</fileName></parent>"
+                    "</backing></VirtualDevice>"
+                    "</val></propSet></objects></returnval></RetrievePropertiesExResponse>"
+                    "</soapenv:Body></soapenv:Envelope>"));
+
+    auto session = VimSession::open(fixture.soap, "user", "pass");
+    ASSERT_TRUE(session.hasValue());
+    VimInventory inventory(*session.value());
+    auto disks = inventory.describeSnapshotDisks(MoRef{"VirtualMachineSnapshot", "snapshot-2"});
+    ASSERT_TRUE(disks) << disks.error().toString();
+    ASSERT_EQ(disks.value().size(), 1u);
+    const VimDiskInfo& disk = disks.value().front();
+    EXPECT_EQ(disk.key, "2000");
+    EXPECT_EQ(disk.capacityBytes, 1048576u);
+    EXPECT_EQ(disk.changeId.value_or(""), "52 aa/7");
+    EXPECT_EQ(disk.deltaDiskFormat, "seSparseFormat");
+    ASSERT_EQ(disk.parents.size(), 1u);
+    EXPECT_EQ(disk.parents.front().fileName, "[ds] vm/vm.vmdk");
+    EXPECT_TRUE(disk.parents.front().deltaDiskFormat.empty());
 }
 
 } // namespace

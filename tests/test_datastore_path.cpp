@@ -3,9 +3,12 @@
 //
 // Unit tests for datastore path parsing
 
+#include <algorithm>
+
 #include <gtest/gtest.h>
 
 #include "DatastorePath.hpp"
+#include "fake_http_transport.hpp"
 #include "vsphere-soap/vim/VimInventory.hpp"
 
 namespace VSphereSoap::Detail {
@@ -98,6 +101,40 @@ TEST(ParseFlatExtentFileNameTest, SkipsCommentAndHeaderLines)
 TEST(ParseFlatExtentFileNameTest, ReturnsNulloptWhenNoExtentLineFound)
 {
     EXPECT_FALSE(parseFlatExtentFileName("# just a comment\nversion=1\n").has_value());
+}
+
+TEST(ParseDescriptorCreateTypeTest, ReadsTheQuotedType)
+{
+    EXPECT_EQ(parseDescriptorCreateType("# Disk DescriptorFile\nversion=1\ncreateType=\"vmfs\"\n"), "vmfs");
+    EXPECT_EQ(parseDescriptorCreateType("createType=\"seSparse\"\r\nparentCID=1\n"), "seSparse");
+    EXPECT_FALSE(parseDescriptorCreateType("version=1\n").has_value());
+}
+
+TEST(DatastoreFileExistsTest, AnswersFromTheStatus)
+{
+    VSphereSoap::Test::FakeHttpTransport transport;
+    Vim::HttpResponse found;
+    found.status = 206;
+    Vim::HttpResponse missing;
+    missing.status = 404;
+    Vim::HttpResponse broken;
+    broken.status = 500;
+    transport.queueForTarget("/folder/a.vmdk", found);
+    transport.queueForTarget("/folder/b.vmdk", missing);
+    transport.queueForTarget("/folder/c.vmdk", broken);
+
+    EXPECT_TRUE(datastoreFileExists(transport, "/folder/a.vmdk", "cookie").value());
+    EXPECT_FALSE(datastoreFileExists(transport, "/folder/b.vmdk", "cookie").value());
+    const auto failed = datastoreFileExists(transport, "/folder/c.vmdk", "cookie");
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(failed.error().code(), VSphereSoap::ErrorCode::IoError);
+
+    // One byte is enough to tell, and the session cookie authenticates it.
+    const auto& headers = transport.m_requests.front().headers;
+    EXPECT_TRUE(std::any_of(headers.begin(), headers.end(),
+                            [](const Vim::HttpHeader& h) { return h.name == "Range" && h.value == "bytes=0-0"; }));
+    EXPECT_TRUE(std::any_of(headers.begin(), headers.end(),
+                            [](const Vim::HttpHeader& h) { return h.name == "Cookie" && h.value == "cookie"; }));
 }
 
 } // namespace

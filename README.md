@@ -14,10 +14,12 @@ The behaviour behind each path, including what live testing against real vCenter
 
 | Direction | Classes and functions | Header | How |
 |---|---|---|---|
-| Export a disk | `VmwareSoapDisk` | `vsphere-soap/VmwareSoapDisk.hpp` | Ranged HTTPS GETs on the disk's flat extent in the datastore; with Changed Block Tracking, unallocated regions are answered by `isZero()` without being read. The VM has to be powered off. |
+| Export a disk | `VmwareSoapDisk` | `vsphere-soap/VmwareSoapDisk.hpp` | A powered-off VM without snapshots: ranged HTTPS GETs on the disk's flat extent. A running VM, a disk with snapshots or a given snapshot: the snapshot's export lease, a streamOptimized VMDK decoded as it arrives, read in ascending order. With Changed Block Tracking, `dataExtents()` lists the allocated ranges or the changes since a change id, and `changeId()` gives the id the next incremental is read against. |
 | Import as a new VM | `VSphereImportSession`, `VSphereDatastoreBackend` | `vsphere-soap/VSphereImportSession.hpp`, `vsphere-soap/VSphereDatastoreBackend.hpp` | `ImportVApp` creates the VM and an HttpNfcLease; the image is streamed as a compressed streamOptimized VMDK, with no local staging file. |
 | Import onto an existing VM | `attachImportedDisk`, `eagerZeroAllDisks` | `vsphere-soap/VSphereDiskImport.hpp` | The disk imported into a disposable placeholder VM is moved onto the target VM and attached. |
-| Import, fallback transport | `prepareFolderPutImport`, `VSphereFolderPutBackend`, `finishFolderPutImport` | `vsphere-soap/VSphereFolderPut*.hpp` | A monolithicFlat VMDK PUT straight into the target VM's folder, for hosts that refuse the lease upload. |
+| Import as a disk of no VM | `releaseImportedDisk`, `datastoreDiskExists` | `vsphere-soap/VSphereDiskImport.hpp` | The disk imported into a placeholder VM is moved to a datastore path and the placeholder deleted. The path is checked before the upload, since the move refuses a taken one only at the end. |
+| Import, fallback transport | `prepareFolderPutImport`, `VSphereFolderPutBackend`, `finishFolderPutImport` | `vsphere-soap/VSphereFolderPut*.hpp` | A monolithicFlat VMDK PUT straight into the target VM's folder, for hosts that refuse the lease upload. An existing file is never overwritten. |
+| Overwrite a disk in place | `prepareFolderPutOverwrite`, `VSphereFolderPutBackend`, `finishFolderPutOverwrite` | `vsphere-soap/VSphereFolderPutImport.hpp` | One PUT of a powered-off VM's flat disk file, then a reset of the VM's CBT, since ESXi does not see the write. |
 | Placement by name | `resolvePlacement` | `vsphere-soap/VSpherePlacement.hpp` | Datastore, cluster or host, resource pool and VM folder names to the ids an import takes. |
 | VM queries and actions | `listVmDisks`, `listVmNetworkAdapters`, `getVmNotes`, `getVmPowerState`, `powerOnVm`, `powerOffVm`, `destroyVm`, `checkDatastoreWriteAccess` | `vsphere-soap/VSphereVmNetworkInfo.hpp` | One-shot calls, each on its own session. |
 | Raw vSphere calls | `SoapClient`, `VimSession`, `VimInventory`, `HttpsRestClient` | `vsphere-soap/vim/*.hpp` | The SOAP layer the rest is built on, for calls the high-level API doesn't cover. Namespace `VSphereSoap::Vim`; exposes pugixml types. |
@@ -97,8 +99,13 @@ vsphere-disk import --host vc01 --user administrator@vsphere.local --in web-01.r
 
 ## Things that will bite you
 
-**Export reads only powered-off VMs.** `open()` checks and refuses otherwise; there is no guest-consistency story
-for a disk that is changing under the reader.
+**A running VM is read through an export, which streams the whole disk.** ESXi locks every file of a running VM,
+its snapshot chain included, so the only way to its disk is the export lease of a snapshot. The stream has no
+ranged reads: reads have to ascend, and an incremental downloads all of the disk's data to keep its changes.
+The snapshot `open()` takes is crash-consistent, or quiesced with `ConnectParams::quiesce`.
+
+**Overwriting a disk in place resets CBT for the whole VM.** CBT is a setting of the VM, so the change ids of its
+other disks stop being valid as well, and each needs a full read next.
 
 **Give every tool its own `ConnectParams::cbtSnapshotName`.** With CBT, `open()` takes a baseline snapshot and,
 before that, deletes any leftover snapshot of the same name that a killed run never removed. Two tools sharing a
@@ -240,7 +247,7 @@ include/vsphere-soap/  VmwareSoapDisk.hpp            export; ConnectParams, VmLo
                        VSphereImportSession.hpp      import: the VM and its HttpNfcLease
                        VSphereDatastoreBackend.hpp   import: the streamOptimized upload, descriptor helpers
                        VSphereDiskImport.hpp         import onto an existing VM
-                       VSphereFolderPut*.hpp         the folder-put fallback transport
+                       VSphereFolderPut*.hpp         the folder-put fallback transport, overwrite in place
                        VSpherePlacement.hpp          names to placement ids
                        VSphereVmNetworkInfo.hpp      one-shot VM queries and actions
                        Result.hpp, Error.hpp, Log.hpp
@@ -250,6 +257,7 @@ include/vsphere-soap/  VmwareSoapDisk.hpp            export; ConnectParams, VmLo
 src/                   SnapshotScope, CbtQuery, TaskWait                  snapshots, CBT, task polling
                        HttpNfcLeaseSession, DiskAttach                    lease lifecycle, disk move and attach
                        StreamOptimizedVmdkEncoder, GrainAssembler         the VMDK stream
+                       StreamOptimizedVmdkDecoder, ExportStreamReader     reading a snapshot's export
 tests/                 unit tests against a scripted fake transport; qemu-img interop of the encoder
 examples/              vsphere-disk
 docs/design.md         how each path works and what live testing found
@@ -257,13 +265,18 @@ docs/design.md         how each path works and what live testing found
 
 ## What has been tested
 
-- **Unit tests:** SOAP envelopes and faults, session and inventory handling, CBT paging, the VMDK encoder and
-  grain framing, disk attach and import spec building, placement lookup, log routing, all against a scripted
+- **Unit tests:** SOAP envelopes and faults, session and inventory handling, CBT paging, the VMDK encoder,
+  decoder and grain framing, the export stream reader, disk attach and import spec building, placement lookup, log routing, all against a scripted
   fake transport. The encoder's compressed output passes `qemu-img check` and converts back byte for byte.
 - **Live, against a vCenter test cluster:** `vsphere-disk export` of a 10 GiB thin disk from a powered-off VM
   (CBT was unavailable on that disk, so the baseline snapshot was taken, dropped again, and every block read);
   `vsphere-disk import` of a 1 GiB image as a new thin VM, placed by datastore and cluster name, read back
   through `VmwareSoapDisk` and matching byte for byte.
+- **Live, through abr-vmdk-tool's `--api soap`:** full and incremental backups of a 10 GiB thin disk of
+  a powered-off and of a running VM; a backup of a given snapshot of a running VM, identical byte for byte to
+  the VDDK's of the same snapshot; restores to a new standalone disk, to a new disk attached to a VM and in place
+  over that disk, each read back and identical to its backup; an incremental against a change id from before
+  an overwrite, refused after the CBT reset.
 - **Built as a subdirectory** of a separate consumer project, with the tool's log sink receiving the messages.
 - **Installed and used through `find_package`** by a consumer with its own `Error.hpp`, `Result.hpp` and
   `IDisk.hpp` ahead in its include path, adapting the disk classes to its own interface.

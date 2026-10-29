@@ -139,7 +139,7 @@ Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const 
     impl->m_vmId = impl->m_lease->vm().value;
     impl->m_deviceUrls.reserve(impl->m_lease->deviceUrls().size());
     for (const auto& du : impl->m_lease->deviceUrls()) {
-        impl->m_deviceUrls.push_back(VSphereImportDeviceUrl{du.importKey, du.url});
+        impl->m_deviceUrls.push_back(VSphereImportDeviceUrl{du.importKey, du.url, du.sslThumbprint});
     }
 
     logger()->info("HttpNfcLease import ready: VM '{}' -> {} ({} device URL(s))", spec.vmName, impl->m_vmId,

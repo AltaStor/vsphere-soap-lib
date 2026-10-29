@@ -82,6 +82,24 @@ struct VSphereAttachResult {
 VSphereSoap::Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params,
                                                                               const VSphereAttachSpec& spec);
 
+/// Moves the disk of a placeholder VM to `datastorePath` ("[datastore] dir/name.vmdk"), unattached, then unregisters
+/// the placeholder and deletes its folder: the end of an import that leaves a disk without a VM.
+/// The detach, move and unregister steps are those of `attachImportedDisk`, with the same recovery details in its
+/// errors; an existing file at `datastorePath` is never overwritten.
+/// `diskProvisioning` is the value the placeholder was created with.
+/// Returns the disk's final path.
+///
+VSphereSoap::Result<std::string> releaseImportedDisk(const ConnectParams& params, const std::string& placeholderVmId,
+                                                     const std::string& datastorePath,
+                                                     const std::string& diskProvisioning);
+
+/// Whether a disk at `datastorePath` ("[datastore] dir/name.vmdk") already exists: its descriptor or its flat
+/// extent.
+/// An import checks its destination with this before uploading, since the final move refuses a taken name only
+/// after the whole disk has been sent.
+///
+VSphereSoap::Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string& datastorePath);
+
 /// Forces every disk currently attached to `vm` eager-zeroed
 /// (`VirtualDiskManager.EagerZeroVirtualDisk_Task`): the same post-import fixup `attachImportedDisk`
 /// applies for a disk it moves onto an existing VM (see `DiskAttach.hpp`'s `eagerZeroVirtualDisk` doc

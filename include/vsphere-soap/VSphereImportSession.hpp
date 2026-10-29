@@ -109,6 +109,9 @@ struct VSphereImportVmSpec {
 struct VSphereImportDeviceUrl {
     std::string key; ///< Matches the corresponding `VSphereImportDiskSpec::key`.
     std::string url; ///< Ready to hand to `VSphereDatastoreBackendParams::deviceUrl`.
+    /// SHA-1 of the certificate of the host the URL leads to, often an ESXi host rather than the vCenter, for
+    /// `VSphereDatastoreBackendParams::pinnedThumbprint`; empty when the lease reports none.
+    std::string sslThumbprint;
 };
 
 /// RAII owner of one HttpNfcLease-based VM import.

@@ -132,6 +132,8 @@ add_library(vsphere-soap STATIC
     src/TaskWait.cpp
     src/DiskAttach.cpp
     src/StreamOptimizedVmdkEncoder.cpp
+    src/StreamOptimizedVmdkDecoder.cpp
+    src/ExportStreamReader.cpp
     src/HttpNfcLeaseSession.cpp
     src/GrainAssembler.cpp
     src/VmwareSoapDisk.cpp

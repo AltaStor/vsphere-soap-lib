@@ -48,6 +48,7 @@ struct ControllerSelector {
 
 struct DiskAttachSpec {
     MoRef placeholderVm;
+    /// Empty leaves the disk unattached at `desiredDatastoreDir`, which is then required.
     MoRef targetVm;
     ControllerSelector controller;
     /// Filename (no directory, no "[datastore]" prefix) to give the moved disk in the target VM's
