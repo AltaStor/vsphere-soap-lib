@@ -871,8 +871,7 @@ Result<DiskAttachResult> attachDiskFile(VimSession& session, const MoRef& target
     // internal index VirtualDiskManager itself resolves paths through, at least on this server).
     // `attachUploadedDisk` (the lease-transport path, which does move the file) does this fixup itself,
     // earlier, at the file's pre-move location, and passes `needsEagerZeroFixup=false` here;
-    // `finishFolderPutImport` (no move at all) leaves it `true` and this is where it happens for that
-    // path.
+    // `finishFolderPutImport` attaches thin and needs no fixup.
     //
     if (needsEagerZeroFixup && diskProvisioning == "eagerZeroedThick") {
         auto datacenter = inventory.resolveDatacenterMoRef(targetVm);

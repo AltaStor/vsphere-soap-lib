@@ -428,10 +428,8 @@ Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, c
     selector.busNumber = controller.busNumber;
     selector.createIfMissing = controller.createIfMissing;
 
-    // See this function's own header doc comment: "eagerZeroedThick" is an accurate label here, not
-    // an assumption; this transport always sends the disk's full logical size, zeros included.
     auto attached = Detail::attachDiskFile(*session, vmMorefResult.value(), descriptorDatastorePath, virtualSizeBytes,
-                                             selector, "eagerZeroedThick");
+                                             selector, "thin");
     if (!attached) {
         return std::move(attached).error();
     }

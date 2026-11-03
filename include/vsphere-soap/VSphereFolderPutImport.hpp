@@ -126,11 +126,7 @@ VSphereSoap::Error finishFolderPutOverwrite(const ConnectParams& params, const V
 /// location.
 /// Connects independently (does not reuse `prepareFolderPutImport`'s session).
 ///
-/// Reports the attached disk as `eagerZeroedThick` (`thinProvisioned` false, `eagerlyScrub` true) on
-/// the resulting backing; an accurate label, not an assumption: this transport always PUTs the disk's
-/// full logical size with every byte (zeros included) actually sent, so the file is genuinely,
-/// physically fully allocated by the time this is called, the functional definition of
-/// eager-zeroed-thick regardless of which VIM API path created it.
+/// Attaches the disk thin, since ESXi keeps a file PUT through `/folder/` thin and refuses to eager-zero it.
 ///
 VSphereSoap::Result<VSphereAttachResult> finishFolderPutImport(
     const ConnectParams& params, const VmLocator& targetVm, const std::string& descriptorDatastorePath,
