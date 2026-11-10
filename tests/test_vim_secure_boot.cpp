@@ -145,4 +145,19 @@ TEST(VimSecureBootTest, FailsForAVmTheServerDoesNotReturn)
     EXPECT_EQ(secureBoot.error().code(), ErrorCode::InvalidArgument);
 }
 
+TEST(VimSecureBootTest, PassesASoapFaultOnAsAnError)
+{
+    Fixture fixture;
+    scriptSessionBootstrap(fixture.transport);
+    HttpResponse fault = xmlResponse("<soapenv:Fault><faultcode>ServerFaultCode</faultcode>"
+                                     "<faultstring>a fault</faultstring>"
+                                     "<detail><RuntimeFaultFault xmlns=\"urn:vim25\"/></detail></soapenv:Fault>");
+    fault.status = 500;
+    fixture.transport.queueForSoapAction("urn:vim25/RetrievePropertiesEx", fault);
+
+    auto secureBoot = describeSecureBootOfVm1(fixture);
+    ASSERT_FALSE(secureBoot.hasValue());
+    EXPECT_EQ(secureBoot.error().code(), ErrorCode::IoError);
+}
+
 } // namespace VSphereSoap::Detail

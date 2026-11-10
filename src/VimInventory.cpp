@@ -522,7 +522,7 @@ Result<std::vector<VimDiskInfo>> VimInventory::describeSnapshotDisks(const MoRef
 
 Result<std::optional<bool>> VimInventory::describeSecureBoot(const MoRef& vm)
 {
-    constexpr std::string_view kPath = "config.bootOptions.efiSecureBootEnabled";
+    constexpr const char* kPath = "config.bootOptions.efiSecureBootEnabled";
 
     pugi::xml_document request = makeVimRequest("RetrievePropertiesEx", m_session.propertyCollector());
     pugi::xml_node op = request.document_element();
@@ -530,7 +530,7 @@ Result<std::optional<bool>> VimInventory::describeSecureBoot(const MoRef& vm)
     pugi::xml_node propSet = specSet.append_child("propSet");
     propSet.append_child("type").text() = "VirtualMachine";
     propSet.append_child("all").text() = "false";
-    propSet.append_child("pathSet").text() = kPath.data();
+    propSet.append_child("pathSet").text() = kPath;
     pugi::xml_node objectSet = specSet.append_child("objectSet");
     pugi::xml_node obj = objectSet.append_child("obj");
     obj.append_attribute("type") = vm.type.c_str();
