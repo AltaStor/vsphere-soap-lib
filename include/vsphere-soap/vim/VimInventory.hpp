@@ -218,6 +218,14 @@ public:
     ///
     Result<std::vector<VimDiskInfo>> describeSnapshotDisks(const MoRef& snapshot);
 
+    /// `config.bootOptions.efiSecureBootEnabled` of `vm`, with one `RetrievePropertiesEx` call for that
+    /// property alone, separate from `describeVm` so the disk readers relying on it keep the same request.
+    /// `std::nullopt` if the server doesn't return the property for `vm`.
+    /// Works the same on vCenter and on a standalone ESXi host.
+    /// Fails with `ErrorCode::InvalidArgument` if `vm` doesn't exist.
+    ///
+    Result<std::optional<bool>> describeSecureBoot(const MoRef& vm);
+
     /// Walks `parent` upward from `entity` (polymorphically, via the `ManagedEntity` base type's
     /// `name`/`parent` properties) until reaching a `Datacenter`, returning its name: the `dcPath`
     /// the datastore HTTP access URL needs (`VmwareSoapDisk`), which nothing else in the VM's own
