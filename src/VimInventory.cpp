@@ -520,6 +520,43 @@ Result<std::vector<VimDiskInfo>> VimInventory::describeSnapshotDisks(const MoRef
     return disks;
 }
 
+Result<std::optional<bool>> VimInventory::describeSecureBoot(const MoRef& vm)
+{
+    constexpr std::string_view kPath = "config.bootOptions.efiSecureBootEnabled";
+
+    pugi::xml_document request = makeVimRequest("RetrievePropertiesEx", m_session.propertyCollector());
+    pugi::xml_node op = request.document_element();
+    pugi::xml_node specSet = op.append_child("specSet");
+    pugi::xml_node propSet = specSet.append_child("propSet");
+    propSet.append_child("type").text() = "VirtualMachine";
+    propSet.append_child("all").text() = "false";
+    propSet.append_child("pathSet").text() = kPath.data();
+    pugi::xml_node objectSet = specSet.append_child("objectSet");
+    pugi::xml_node obj = objectSet.append_child("obj");
+    obj.append_attribute("type") = vm.type.c_str();
+    obj.text() = vm.value.c_str();
+    op.append_child("options");
+
+    bool found = false;
+    std::optional<bool> enabled;
+    const auto onObject = [&](pugi::xml_node objectContent) {
+        found = true;
+        for (pugi::xml_node prop = objectContent.child("propSet"); prop; prop = prop.next_sibling("propSet")) {
+            if (std::string_view(prop.child("name").text().as_string()) == kPath) {
+                enabled = prop.child("val").text().as_bool();
+            }
+        }
+    };
+    if (Error retrieved = retrievePropertiesPaged(m_session, op, onObject); !retrieved.ok()) {
+        return retrieved;
+    }
+
+    if (!found) {
+        return Error(ErrorCode::InvalidArgument, "no such VirtualMachine: " + vm.value);
+    }
+    return enabled;
+}
+
 namespace {
 struct DatacenterRef {
     std::string name;
