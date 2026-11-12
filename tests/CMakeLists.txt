@@ -39,6 +39,7 @@ add_executable(vsphere_soap_tests
     test_vsphere_disk_provisioning.cpp
     test_log.cpp
     test_placement.cpp
+    test_vsphere_client.cpp
 )
 
 # White-box: the tests drive the library's internal classes through their private headers.
