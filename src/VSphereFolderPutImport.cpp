@@ -7,12 +7,12 @@
 
 #include <algorithm>
 
+#include "ClientOperations.hpp"
 #include "DatastorePath.hpp"
 #include "DiskAttach.hpp"
 #include "SnapshotScope.hpp"
 #include "TaskWait.hpp"
 #include "VmLookup.hpp"
-#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
 #include "vsphere-soap/vim/VimInventory.hpp"
@@ -22,29 +22,20 @@
 namespace VSphereSoap {
 
 /// Definition of the opaque handle declared in the public header.
-/// Owns *all three* of the transport, the SoapClient, and the VimSession (not just the session) because
-/// VimSession only ever *references* its SoapClient (`SoapClient& m_soap`, see VimSession.hpp), which in
-/// turn only references its transport; none of them own each other.
-/// `prepareFolderPutImport` originally built all three as plain stack locals, which happened to work for
-/// every synchronous use *inside* that function (the descriptor PUT) but left `session`'s references
-/// dangling the moment the function returned: `VimSession`'s destructor (best-effort `Logout`) would
-/// then run against an already-destroyed `SoapClient`/transport whenever this handle itself was
-/// eventually destroyed, which is undefined behavior, not just "logs out a little late".
-/// Declared in the same order `VmwareSoapDisk::Impl` already uses for the identical ownership shape
-/// (transport, then soap, then session) so members are destroyed in the correct reverse order: session
-/// first (while soap/transport are still alive to carry its Logout call), then soap, then transport.
+/// Shares ownership of the whole `Detail::VimConnection` (transport, SoapClient and VimSession, which
+/// only reference one another and so must live together; see VimConnection.hpp) with the
+/// `ClientConnection` the prepare call ran on: the `VSphereClient`, or the temporary one inside the
+/// one-shot free function.
+/// The session logs out only when the last owner goes, so the cookie stays valid while this handle lives,
+/// even after the client that created it is destroyed; while the client lives, the handle adds nothing.
 ///
 class VSphereFolderPutSessionHandle {
 public:
-    VSphereFolderPutSessionHandle(std::unique_ptr<Vim::HttpTransportAdapter> transport,
-                                    std::unique_ptr<Vim::SoapClient> soap,
-                                    std::unique_ptr<Vim::VimSession> session)
-        : m_transport(std::move(transport)), m_soap(std::move(soap)), m_session(std::move(session)) {}
+    explicit VSphereFolderPutSessionHandle(std::shared_ptr<Detail::VimConnection> connection)
+        : m_connection(std::move(connection)) {}
 
 private:
-    std::unique_ptr<Vim::HttpTransportAdapter> m_transport;
-    std::unique_ptr<Vim::SoapClient> m_soap;
-    std::unique_ptr<Vim::VimSession> m_session;
+    std::shared_ptr<Detail::VimConnection> m_connection;
 };
 
 // See VSphereFolderPutPrepResult's own declarations' doc comment: these must be defined here, not
@@ -77,9 +68,10 @@ std::string ensureVmdkExtension(const std::string& name)
 
 } // namespace
 
-Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& params,
-                                                              const VSphereFolderPutPrepSpec& spec)
+Result<VSphereFolderPutPrepResult> Detail::prepareFolderPutImport(Detail::ClientConnection& connection,
+                                                                  const VSphereFolderPutPrepSpec& spec)
 {
+    const ConnectParams& params = connection.params();
     if (spec.fileName.empty()) {
         return Error(ErrorCode::InvalidArgument, "VSphereFolderPutPrepSpec::fileName is required");
     }
@@ -92,19 +84,13 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& p
 
     logger()->info("preparing folder-put import for '{}' on {}:{}", spec.fileName, params.host, params.port);
 
-    // Heap-allocated (not stack locals): both must outlive this function; see
-    // VSphereFolderPutSessionHandle's own doc comment for why.
-    auto transport = std::make_unique<Vim::HttpTransportAdapter>(params.host, params.port,
-                                                                        params.verifyTlsCertificate,
-                                                                        params.pinnedThumbprint);
-    auto soap = std::make_unique<Vim::SoapClient>(*transport, params.host);
-    auto sessionResult = Vim::VimSession::open(*soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
+    Vim::IHttpTransport* transport = open.value()->transport.get();
+    Vim::SoapClient* soap = open.value()->soap.get();
+    Vim::VimSession* session = open.value()->session.get();
     Vim::VimInventory inventory(*session);
 
     auto vmMorefResult = Detail::findVm(inventory, spec.targetVm);
@@ -214,16 +200,18 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& p
     // see VSphereFolderPutSessionHandle's own doc comment for why this matters (confirmed live: without
     // it, the flat extent PUT gets a bare HTTP 401).
     result.keepAlive =
-        std::make_unique<VSphereFolderPutSessionHandle>(std::move(transport), std::move(soap), std::move(session));
+        std::make_unique<VSphereFolderPutSessionHandle>(connection.share());
 
     logger()->info("folder-put descriptor written to {} ; flat extent target {}", result.descriptorDatastorePath,
                     result.flatPutUrl);
     return result;
 }
 
-Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm,
-                                                             const DiskSelector& disk)
+Result<VSphereFolderPutPrepResult> Detail::prepareFolderPutOverwrite(Detail::ClientConnection& connection,
+                                                                     const Detail::PublicVmLocator& vm,
+                                                                     const DiskSelector& disk)
 {
+    const ConnectParams& params = connection.params();
     if (Error invalid = Detail::checkVmLocator(vm, "vm"); !invalid.ok()) {
         return invalid;
     }
@@ -231,14 +219,13 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams
         return Error(ErrorCode::InvalidArgument, "DiskSelector has neither key nor datastorePath set");
     }
 
-    auto transport = std::make_unique<Vim::HttpTransportAdapter>(params.host, params.port,
-                                                                 params.verifyTlsCertificate, params.pinnedThumbprint);
-    auto soap = std::make_unique<Vim::SoapClient>(*transport, params.host);
-    auto sessionResult = Vim::VimSession::open(*soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
+    Vim::IHttpTransport* transport = open.value()->transport.get();
+    Vim::SoapClient* soap = open.value()->soap.get();
+    Vim::VimSession* session = open.value()->session.get();
     Vim::VimInventory inventory(*session);
 
     auto vmMoref = Detail::findVm(inventory, vm);
@@ -310,25 +297,23 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams
     result.descriptorDatastorePath = target->rawFileName;
     result.virtualSizeBytes = target->capacityBytes;
     result.keepAlive =
-        std::make_unique<VSphereFolderPutSessionHandle>(std::move(transport), std::move(soap), std::move(session));
+        std::make_unique<VSphereFolderPutSessionHandle>(connection.share());
 
     logger()->info("disk {} of VM '{}' ready to be overwritten through {}", result.descriptorDatastorePath, vmName,
                    flatRelativePath);
     return result;
 }
 
-Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm)
+Error Detail::finishFolderPutOverwrite(Detail::ClientConnection& connection, const Detail::PublicVmLocator& vm)
 {
     if (Error invalid = Detail::checkVmLocator(vm, "vm"); !invalid.ok()) {
         return invalid;
     }
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate, params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    Vim::VimSession& session = *sessionResult.value();
+    Vim::VimSession& session = *open.value()->session;
     Vim::VimInventory inventory(session);
 
     auto vmMoref = Detail::findVm(inventory, vm);
@@ -385,23 +370,21 @@ Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm)
     return {};
 }
 
-Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
-                                                     const std::string& descriptorDatastorePath,
-                                                     std::uint64_t virtualSizeBytes,
-                                                     const VSphereAttachControllerSpec& controller)
+Result<VSphereAttachResult> Detail::finishFolderPutImport(Detail::ClientConnection& connection,
+                                                         const Detail::PublicVmLocator& targetVm,
+                                                         const std::string& descriptorDatastorePath,
+                                                         std::uint64_t virtualSizeBytes,
+                                                         const VSphereAttachControllerSpec& controller)
 {
     if (Error invalid = Detail::checkVmLocator(targetVm, "targetVm"); !invalid.ok()) {
         return invalid;
     }
 
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
+    Vim::VimSession* session = open.value()->session.get();
     Vim::VimInventory inventory(*session);
 
     auto vmMorefResult = Detail::findVm(inventory, targetVm);
@@ -423,8 +406,8 @@ Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, c
                                  attached.value().unitNumber};
 }
 
-Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
-                                      const std::string& descriptorDatastorePath)
+Error Detail::cleanupFolderPutImport(Detail::ClientConnection& connection, const Detail::PublicVmLocator& targetVm,
+                                     const std::string& descriptorDatastorePath)
 {
     if (Error invalid = Detail::checkVmLocator(targetVm, "targetVm"); !invalid.ok()) {
         return invalid;
@@ -437,14 +420,11 @@ Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targe
     const std::string flatRelativePath = Detail::deriveFlatName(parsedDescriptor->second);
     const std::string flatDatastorePath = "[" + parsedDescriptor->first + "] " + flatRelativePath;
 
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
+    Vim::VimSession* session = open.value()->session.get();
     Vim::VimInventory inventory(*session);
 
     auto vmMorefResult = Detail::findVm(inventory, targetVm);
@@ -469,6 +449,45 @@ Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targe
                         descriptorDatastorePath, deletedDescriptor.toString());
     }
     return {};
+}
+
+// One-shot wrappers: one login per call. See VSphereClient for running several operations on one login.
+
+Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& params,
+                                                          const VSphereFolderPutPrepSpec& spec)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::prepareFolderPutImport(connection, spec);
+}
+
+Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm,
+                                                             const DiskSelector& disk)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::prepareFolderPutOverwrite(connection, vm, disk);
+}
+
+Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::finishFolderPutOverwrite(connection, vm);
+}
+
+Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
+                                                  const std::string& descriptorDatastorePath,
+                                                  std::uint64_t virtualSizeBytes,
+                                                  const VSphereAttachControllerSpec& controller)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::finishFolderPutImport(connection, targetVm, descriptorDatastorePath, virtualSizeBytes,
+                                         controller);
+}
+
+Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
+                             const std::string& descriptorDatastorePath)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::cleanupFolderPutImport(connection, targetVm, descriptorDatastorePath);
 }
 
 } // namespace VSphereSoap

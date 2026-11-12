@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
+#include "ClientOperations.hpp"
 #include "Placement.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
@@ -179,21 +179,24 @@ Result<VSpherePlacement> resolvePlacement(VimSession& session, const VSpherePlac
     return placement;
 }
 
+Result<VSpherePlacement> resolvePlacement(ClientConnection& connection, const VSpherePlacementSpec& spec)
+{
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
+    }
+    return resolvePlacement(*open.value()->session, spec);
+}
+
 } // namespace VSphereSoap::Detail
 
 namespace VSphereSoap {
 
+/// One-shot wrapper: one login per call. See VSphereClient for running several operations on one login.
 Result<VSpherePlacement> resolvePlacement(const ConnectParams& params, const VSpherePlacementSpec& spec)
 {
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                           params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-
-    auto session = Vim::VimSession::open(soap, params.username, params.password);
-    if (!session) {
-        return std::move(session).error();
-    }
-    return Detail::resolvePlacement(*session.value(), spec);
+    Detail::ClientConnection connection(params);
+    return Detail::resolvePlacement(connection, spec);
 }
 
 } // namespace VSphereSoap

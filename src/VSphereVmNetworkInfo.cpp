@@ -8,10 +8,9 @@
 #include <algorithm>
 #include <chrono>
 
+#include "ClientOperations.hpp"
 #include "DiskAttach.hpp"
 #include "VmLookup.hpp"
-#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
-#include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
 #include "TaskWait.hpp"
 #include "vsphere-soap/vim/VimInventory.hpp"
@@ -19,14 +18,9 @@
 #include "vsphere-soap/vim/VimTypes.hpp"
 #include "vsphere-soap/Error.hpp"
 
-namespace VSphereSoap {
-
-using VSphereSoap::Error;
-using VSphereSoap::ErrorCode;
-using VSphereSoap::Result;
+namespace VSphereSoap::Detail {
 
 namespace {
-using Detail::logger;
 
 const char* powerStateName(Vim::VimPowerState state)
 {
@@ -38,35 +32,68 @@ const char* powerStateName(Vim::VimPowerState state)
     }
     return "unknown";
 }
-} // namespace
 
-Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const ConnectParams& params,
-                                                                         const VmLocator& vm)
+/// Connects (if not yet), resolves `vm`, and reads its properties: the start of every VM query below.
+/// The locator must already have been checked.
+Result<Vim::VimVmInfo> describeVm(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
+    }
+    Vim::VimInventory inventory(*open.value()->session);
+    auto vmMoref = findVm(inventory, vm);
+    if (!vmMoref) {
+        return std::move(vmMoref).error();
+    }
+    return inventory.describeVm(vmMoref.value());
+}
+
+/// Resolves `vm`, runs the no-argument VM task `method` on it (e.g. "PowerOnVM_Task") and waits for it.
+Error runVmTask(ClientConnection& connection, const PublicVmLocator& vm, const char* method, const char* verb)
+{
+    if (Error invalid = checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
         return invalid;
     }
-
-    logger()->info("listing network adapters on {}:{}", params.host, params.port);
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
+    Vim::VimSession& session = *open.value()->session;
+    Vim::VimInventory inventory(session);
+    auto vmMorefResult = findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
 
-    auto vmInfoResult = inventory.describeVm(vmMorefResult.value());
+    logger()->info("{} VM {}", verb, vmMorefResult.value().value);
+    pugi::xml_document request = Vim::makeVimRequest(method, vmMorefResult.value());
+    auto callResult = session.call(request.document_element());
+    if (!callResult) {
+        return std::move(callResult).error();
+    }
+    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
+    if (task.empty()) {
+        return Error(ErrorCode::InvalidFormat, std::string(method) + " response missing task MoRef");
+    }
+    auto waited = waitForVimTask(session, task);
+    if (!waited) {
+        return std::move(waited).error();
+    }
+    return {};
+}
+
+} // namespace
+
+Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(ClientConnection& connection,
+                                                                     const PublicVmLocator& vm)
+{
+    if (Error invalid = checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
+    }
+
+    logger()->info("listing network adapters on {}:{}", connection.params().host, connection.params().port);
+    auto vmInfoResult = describeVm(connection, vm);
     if (!vmInfoResult) {
         return std::move(vmInfoResult).error();
     }
@@ -94,60 +121,24 @@ Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const Conne
     return out;
 }
 
-Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
+Result<std::string> getVmNotes(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+    if (Error invalid = checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
         return invalid;
     }
-
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
-    if (!vmMorefResult) {
-        return std::move(vmMorefResult).error();
-    }
-
-    auto vmInfoResult = inventory.describeVm(vmMorefResult.value());
+    auto vmInfoResult = describeVm(connection, vm);
     if (!vmInfoResult) {
         return std::move(vmInfoResult).error();
     }
     return vmInfoResult.value().annotation;
 }
 
-Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params, const VmLocator& vm)
+Result<std::vector<VSphereDiskSummary>> listVmDisks(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+    if (Error invalid = checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
         return invalid;
     }
-
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
-    if (!vmMorefResult) {
-        return std::move(vmMorefResult).error();
-    }
-    auto vmInfoResult = inventory.describeVm(vmMorefResult.value());
+    auto vmInfoResult = describeVm(connection, vm);
     if (!vmInfoResult) {
         return std::move(vmInfoResult).error();
     }
@@ -161,170 +152,43 @@ Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
     return out;
 }
 
-Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator& vm)
+Result<std::string> getVmPowerState(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+    if (Error invalid = checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
         return invalid;
     }
-
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
-    if (!vmMorefResult) {
-        return std::move(vmMorefResult).error();
-    }
-    auto vmInfoResult = inventory.describeVm(vmMorefResult.value());
+    auto vmInfoResult = describeVm(connection, vm);
     if (!vmInfoResult) {
         return std::move(vmInfoResult).error();
     }
     return std::string(powerStateName(vmInfoResult.value().powerState));
 }
 
-Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
+Error powerOnVm(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
-        return invalid;
-    }
-
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
-    if (!vmMorefResult) {
-        return std::move(vmMorefResult).error();
-    }
-
-    logger()->info("powering on VM {}", vmMorefResult.value().value);
-    pugi::xml_document request = Vim::makeVimRequest("PowerOnVM_Task", vmMorefResult.value());
-    auto callResult = session->call(request.document_element());
-    if (!callResult) {
-        return std::move(callResult).error();
-    }
-    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
-    if (task.empty()) {
-        return Error(ErrorCode::InvalidFormat, "PowerOnVM_Task response missing task MoRef");
-    }
-    auto waited = Detail::waitForVimTask(*session, task);
-    if (!waited) {
-        return std::move(waited).error();
-    }
-    return {};
+    return runVmTask(connection, vm, "PowerOnVM_Task", "powering on");
 }
 
-Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
+Error powerOffVm(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
-        return invalid;
-    }
-
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
-    if (!vmMorefResult) {
-        return std::move(vmMorefResult).error();
-    }
-
-    logger()->info("powering off VM {}", vmMorefResult.value().value);
-    pugi::xml_document request = Vim::makeVimRequest("PowerOffVM_Task", vmMorefResult.value());
-    auto callResult = session->call(request.document_element());
-    if (!callResult) {
-        return std::move(callResult).error();
-    }
-    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
-    if (task.empty()) {
-        return Error(ErrorCode::InvalidFormat, "PowerOffVM_Task response missing task MoRef");
-    }
-    auto waited = Detail::waitForVimTask(*session, task);
-    if (!waited) {
-        return std::move(waited).error();
-    }
-    return {};
+    return runVmTask(connection, vm, "PowerOffVM_Task", "powering off");
 }
 
-Error destroyVm(const ConnectParams& params, const VmLocator& vm)
+Error destroyVm(ClientConnection& connection, const PublicVmLocator& vm)
 {
-    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
-        return invalid;
-    }
-
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
-    }
-    auto session = std::move(sessionResult).value();
-
-    Vim::VimInventory inventory(*session);
-    auto vmMorefResult = Detail::findVm(inventory, vm);
-    if (!vmMorefResult) {
-        return std::move(vmMorefResult).error();
-    }
-
-    logger()->info("destroying VM {}", vmMorefResult.value().value);
-    pugi::xml_document request = Vim::makeVimRequest("Destroy_Task", vmMorefResult.value());
-    auto callResult = session->call(request.document_element());
-    if (!callResult) {
-        return std::move(callResult).error();
-    }
-    const Vim::MoRef task = Vim::parseMoRef(Vim::soapBodyContent(callResult.value()).child("returnval"));
-    if (task.empty()) {
-        return Error(ErrorCode::InvalidFormat, "Destroy_Task response missing task MoRef");
-    }
-    auto waited = Detail::waitForVimTask(*session, task);
-    if (!waited) {
-        return std::move(waited).error();
-    }
-    return {};
+    return runVmTask(connection, vm, "Destroy_Task", "destroying");
 }
 
-Error checkDatastoreWriteAccess(const ConnectParams& params, const std::string& datastoreName,
-                                         const std::string& resourcePoolMoref)
+Error checkDatastoreWriteAccess(ClientConnection& connection, const std::string& datastoreName,
+                                const std::string& resourcePoolMoref)
 {
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    auto session = std::move(sessionResult).value();
+    Vim::VimSession& session = *open.value()->session;
 
-    Vim::VimInventory inventory(*session);
+    Vim::VimInventory inventory(session);
     auto datacenterResult = inventory.resolveDatacenterMoRef(Vim::MoRef{"ResourcePool", resourcePoolMoref});
     if (!datacenterResult) {
         return Error(ErrorCode::InvalidArgument,
@@ -339,17 +203,72 @@ Error checkDatastoreWriteAccess(const ConnectParams& params, const std::string& 
                             std::chrono::system_clock::now().time_since_epoch()).count();
     const std::string marker = "[" + datastoreName + "] .preflight-write-test-" + std::to_string(nowMs);
 
-    if (auto made = Detail::makeDatastoreDirectory(*session, marker, datacenterResult.value()); !made.ok()) {
+    if (auto made = makeDatastoreDirectory(session, marker, datacenterResult.value()); !made.ok()) {
         return Error(ErrorCode::IoError,
                      "could not create a test directory on datastore '" + datastoreName +
                          "' -- this session likely lacks Datastore.FileManagement there: " + made.message());
     }
-    if (auto deleted = Detail::deleteDatastoreFile(*session, marker, datacenterResult.value()); !deleted.ok()) {
+    if (auto deleted = deleteDatastoreFile(session, marker, datacenterResult.value()); !deleted.ok()) {
         logger()->warn("write-access probe left behind '{}' on datastore '{}' (cleanup failed, but the create "
                         "already proved write access): {}",
                         marker, datastoreName, deleted.toString());
     }
     return {};
+}
+
+} // namespace VSphereSoap::Detail
+
+// One-shot wrappers: one login per call. See VSphereClient for running several operations on one login.
+namespace VSphereSoap {
+
+Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const ConnectParams& params,
+                                                                     const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::listVmNetworkAdapters(connection, vm);
+}
+
+Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::getVmNotes(connection, vm);
+}
+
+Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::listVmDisks(connection, vm);
+}
+
+Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::getVmPowerState(connection, vm);
+}
+
+Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::powerOnVm(connection, vm);
+}
+
+Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::powerOffVm(connection, vm);
+}
+
+Error destroyVm(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::destroyVm(connection, vm);
+}
+
+Error checkDatastoreWriteAccess(const ConnectParams& params, const std::string& datastoreName,
+                                const std::string& resourcePoolMoref)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::checkDatastoreWriteAccess(connection, datastoreName, resourcePoolMoref);
 }
 
 } // namespace VSphereSoap

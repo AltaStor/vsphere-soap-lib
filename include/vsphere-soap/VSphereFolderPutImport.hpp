@@ -95,6 +95,7 @@ struct VSphereFolderPutPrepResult {
 /// Fails with `ErrorCode::InvalidArgument` if the target VM is powered on, `spec.fileName`/`spec.virtualSizeBytes`
 /// is empty/zero, or a file of that name already exists; `ErrorCode::IoError` on connection/auth/transport failure.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutImport(
     const ConnectParams& params, const VSphereFolderPutPrepSpec& spec);
 
@@ -106,6 +107,7 @@ VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutImport(
 /// when the disk is not a flat file, such as a vSAN or vVols disk.
 /// The disk is fully allocated afterwards: every byte is written, zeros included.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams& params,
                                                                           const VmLocator& vm,
                                                                           const DiskSelector& disk);
@@ -118,6 +120,7 @@ VSphereSoap::Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const 
 /// be a full one.
 /// Fails with `ErrorCode::IoError` when a step fails; the error says which.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm);
 
 /// Attaches the already-fully-written file at `descriptorDatastorePath` (from `prepareFolderPutImport`'s
@@ -128,6 +131,7 @@ VSphereSoap::Error finishFolderPutOverwrite(const ConnectParams& params, const V
 ///
 /// Attaches the disk thin, since ESXi keeps a file PUT through `/folder/` thin and refuses to eager-zero it.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<VSphereAttachResult> finishFolderPutImport(
     const ConnectParams& params, const VmLocator& targetVm, const std::string& descriptorDatastorePath,
     std::uint64_t virtualSizeBytes, const VSphereAttachControllerSpec& controller);
@@ -142,6 +146,7 @@ VSphereSoap::Result<VSphereAttachResult> finishFolderPutImport(
 /// never got far enough to create it; only returns an error for a connection/auth failure that meant no
 /// cleanup could even be attempted.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error cleanupFolderPutImport(const ConnectParams& params,
                                                                      const VmLocator& targetVm,
                                                                      const std::string& descriptorDatastorePath);

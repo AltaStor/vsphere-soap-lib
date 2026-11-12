@@ -43,6 +43,7 @@ struct VSpherePlacement {
 /// Connects, logs in, and resolves `spec` by name.
 /// Fails with `ErrorCode::InvalidArgument` when a name matches nothing or more than one object
 /// (the message lists the candidates), `ErrorCode::IoError` on connection/auth/transport failure.
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 Result<VSpherePlacement> resolvePlacement(const ConnectParams& params, const VSpherePlacementSpec& spec);
 
 } // namespace VSphereSoap

@@ -45,6 +45,7 @@ struct VSphereNetworkAdapterInfo {
 /// connection/auth/transport failure; `ErrorCode::InvalidFormat` on an unexpected vSphere response
 /// shape.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(
     const ConnectParams& params, const VmLocator& vm);
 
@@ -56,6 +57,7 @@ VSphereSoap::Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapter
 /// unrelated pieces of VM metadata a caller may want independently, and keeping this function
 /// single-purpose matches this header's own existing shape.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm);
 
 /// One virtual disk on a vSphere VM, as reported by `config.hardware.device` (SOAP):
@@ -78,6 +80,7 @@ struct VSphereDiskSummary {
 /// Connects, logs in, resolves `vm`, and returns every virtual disk currently attached to it (in
 /// `config.hardware.device` order).
 /// Same failure modes as `listVmNetworkAdapters`.
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
                                                                                      const VmLocator& vm);
 
@@ -86,6 +89,7 @@ VSphereSoap::Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectPa
 /// values.
 /// Same failure modes as `listVmNetworkAdapters`.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator& vm);
 
 /// `PowerOnVM_Task`: starts `vm` and waits for the task to complete (this only means vCenter accepted
@@ -97,6 +101,7 @@ VSphereSoap::Result<std::string> getVmPowerState(const ConnectParams& params, co
 /// Same failure modes as `listVmNetworkAdapters`, plus `ErrorCode::IoError` if the task itself fails or
 /// times out.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error powerOnVm(const ConnectParams& params, const VmLocator& vm);
 
 /// Creates a small marker directory on `datastoreName` (its datacenter resolved via `resourcePoolMoref`,
@@ -113,6 +118,7 @@ VSphereSoap::Error powerOnVm(const ConnectParams& params, const VmLocator& vm);
 /// (most commonly `NoPermission`); `ErrorCode::InvalidArgument` if `resourcePoolMoref`'s datacenter
 /// can't be resolved.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error checkDatastoreWriteAccess(const ConnectParams& params,
                                                                         const std::string& datastoreName,
                                                                         const std::string& resourcePoolMoref);
@@ -120,6 +126,7 @@ VSphereSoap::Error checkDatastoreWriteAccess(const ConnectParams& params,
 /// `PowerOffVM_Task`: stops `vm` and waits for the task to complete.
 /// A no-op (not an error) if `vm` is already powered off.
 /// Same failure modes as `powerOnVm`.
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error powerOffVm(const ConnectParams& params, const VmLocator& vm);
 
 /// `Destroy_Task`: deletes `vm` and its files.
@@ -128,6 +135,7 @@ VSphereSoap::Error powerOffVm(const ConnectParams& params, const VmLocator& vm);
 /// is reported the same way as "successfully powered off").
 /// Same failure modes as `powerOnVm`.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error destroyVm(const ConnectParams& params, const VmLocator& vm);
 
 } // namespace VSphereSoap

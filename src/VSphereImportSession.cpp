@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "ClientOperations.hpp"
 #include "HttpNfcLeaseSession.hpp"
 #include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
@@ -147,7 +148,7 @@ Result<std::unique_ptr<VSphereImportSession>> VSphereImportSession::begin(const 
     return std::unique_ptr<VSphereImportSession>(new VSphereImportSession(std::move(impl)));
 }
 
-Error VSphereImportSession::validate(const ConnectParams& params, const VSphereImportVmSpec& spec)
+Error Detail::validateImport(Detail::ClientConnection& connection, const VSphereImportVmSpec& spec)
 {
     if (spec.disks.empty()) {
         return Error(ErrorCode::InvalidArgument, "VSphereImportSession::validate: spec.disks is empty");
@@ -155,14 +156,17 @@ Error VSphereImportSession::validate(const ConnectParams& params, const VSphereI
     if (spec.resourcePoolId.empty()) {
         return Error(ErrorCode::InvalidArgument, "VSphereImportSession::validate: spec.resourcePoolId is required");
     }
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                        params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    return Detail::HttpNfcLeaseSession::validate(*sessionResult.value(), toInternalSpec(spec));
+    return HttpNfcLeaseSession::validate(*open.value()->session, toInternalSpec(spec));
+}
+
+Error VSphereImportSession::validate(const ConnectParams& params, const VSphereImportVmSpec& spec)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::validateImport(connection, spec);
 }
 
 const std::string& VSphereImportSession::vmId() const noexcept { return m_impl->m_vmId; }

@@ -7,10 +7,10 @@
 
 #include <algorithm>
 
+#include "ClientOperations.hpp"
 #include "DatastorePath.hpp"
 #include "DiskAttach.hpp"
 #include "VmLookup.hpp"
-#include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
 #include "vsphere-soap/vim/VimInventory.hpp"
@@ -25,7 +25,8 @@ using VSphereSoap::Result;
 
 using Detail::logger;
 
-Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, const VSphereAttachSpec& spec)
+Result<VSphereAttachResult> Detail::attachImportedDisk(Detail::ClientConnection& connection,
+                                                       const VSphereAttachSpec& spec)
 {
     if (spec.placeholderVmId.empty()) {
         return Error(ErrorCode::InvalidArgument, "VSphereAttachSpec::placeholderVmId must not be empty");
@@ -35,20 +36,14 @@ Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, cons
         return invalid;
     }
 
-    logger()->info("attaching placeholder VM {}'s disk to target VM on {}:{}", spec.placeholderVmId, params.host,
-                    params.port);
+    logger()->info("attaching placeholder VM {}'s disk to target VM on {}:{}", spec.placeholderVmId,
+                   connection.params().host, connection.params().port);
 
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
+    Vim::VimSession* session = open.value()->session.get();
 
     Vim::VimInventory inventory(*session);
     auto targetMorefResult = Detail::findVm(inventory, spec.targetVm, "VSphereAttachSpec::targetVm");
@@ -75,8 +70,9 @@ Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, cons
                                  result.value().unitNumber};
 }
 
-Result<std::string> releaseImportedDisk(const ConnectParams& params, const std::string& placeholderVmId,
-                                        const std::string& datastorePath, const std::string& diskProvisioning)
+Result<std::string> Detail::releaseImportedDisk(Detail::ClientConnection& connection,
+                                                const std::string& placeholderVmId, const std::string& datastorePath,
+                                                const std::string& diskProvisioning)
 {
     if (placeholderVmId.empty()) {
         return Error(ErrorCode::InvalidArgument, "releaseImportedDisk: the placeholder VM id must not be empty");
@@ -88,15 +84,14 @@ Result<std::string> releaseImportedDisk(const ConnectParams& params, const std::
     }
     const auto slash = parsed->second.find_last_of('/');
 
-    logger()->info("moving placeholder VM {}'s disk to {} on {}:{}", placeholderVmId, datastorePath, params.host,
-                   params.port);
+    logger()->info("moving placeholder VM {}'s disk to {} on {}:{}", placeholderVmId, datastorePath,
+                   connection.params().host, connection.params().port);
 
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate, params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
+    Vim::VimSession* session = open.value()->session.get();
 
     Detail::DiskAttachSpec spec;
     spec.placeholderVm = Vim::MoRef{"VirtualMachine", placeholderVmId};
@@ -105,27 +100,28 @@ Result<std::string> releaseImportedDisk(const ConnectParams& params, const std::
     spec.desiredDatastoreDir = "[" + parsed->first + "]" + dir;
     spec.diskProvisioning = diskProvisioning;
 
-    auto result = Detail::attachUploadedDisk(*sessionResult.value(), spec);
+    auto result = Detail::attachUploadedDisk(*session, spec);
     if (!result) {
         return std::move(result).error();
     }
     return result.value().datastorePath;
 }
 
-Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string& datastorePath)
+Result<bool> Detail::datastoreDiskExists(Detail::ClientConnection& connection, const std::string& datastorePath)
 {
     const auto parsed = Vim::parseDatastorePath(datastorePath);
     if (!parsed || parsed->second.empty() || parsed->second.back() == '/') {
         return Error(ErrorCode::InvalidArgument, "'" + datastorePath + "' is not a '[datastore] dir/name.vmdk' path");
     }
 
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate, params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    Vim::VimInventory inventory(*sessionResult.value());
+    Vim::IHttpTransport& transport = *open.value()->transport;
+    const Vim::SoapClient& soap = *open.value()->soap;
+    Vim::VimSession* session = open.value()->session.get();
+    Vim::VimInventory inventory(*session);
 
     // The datastore HTTP path names the datacenter, so find the one that lists the datastore.
     auto datastores = inventory.listObjects("Datastore", {"name"});
@@ -162,23 +158,17 @@ Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string&
     return false;
 }
 
-Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
+Error Detail::eagerZeroAllDisks(Detail::ClientConnection& connection, const Detail::PublicVmLocator& vm)
 {
     if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
         return invalid;
     }
 
-    Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
-                                             params.pinnedThumbprint);
-    Vim::SoapClient soap(transport, params.host);
-
-    auto sessionResult = Vim::VimSession::open(soap, params.username, params.password);
-    if (!sessionResult) {
-        logger()->warn("VIM session open against {}:{} failed: {}", params.host, params.port,
-                        sessionResult.error().toString());
-        return std::move(sessionResult).error();
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
     }
-    auto session = std::move(sessionResult).value();
+    Vim::VimSession* session = open.value()->session.get();
 
     Vim::VimInventory inventory(*session);
     auto vmMorefResult = Detail::findVm(inventory, vm);
@@ -202,6 +192,33 @@ Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
         }
     }
     return {};
+}
+
+// One-shot wrappers: one login per call. See VSphereClient for running several operations on one login.
+
+Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, const VSphereAttachSpec& spec)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::attachImportedDisk(connection, spec);
+}
+
+Result<std::string> releaseImportedDisk(const ConnectParams& params, const std::string& placeholderVmId,
+                                        const std::string& datastorePath, const std::string& diskProvisioning)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::releaseImportedDisk(connection, placeholderVmId, datastorePath, diskProvisioning);
+}
+
+Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string& datastorePath)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::datastoreDiskExists(connection, datastorePath);
+}
+
+Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::eagerZeroAllDisks(connection, vm);
 }
 
 } // namespace VSphereSoap

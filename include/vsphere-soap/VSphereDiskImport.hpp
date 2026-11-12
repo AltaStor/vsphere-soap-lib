@@ -79,6 +79,7 @@ struct VSphereAttachResult {
 /// a human to finish the job manually without re-uploading, since re-running the upload is far more
 /// expensive than one more SOAP call.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params,
                                                                               const VSphereAttachSpec& spec);
 
@@ -89,6 +90,7 @@ VSphereSoap::Result<VSphereAttachResult> attachImportedDisk(const ConnectParams&
 /// `diskProvisioning` is the value the placeholder was created with.
 /// Returns the disk's final path.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<std::string> releaseImportedDisk(const ConnectParams& params, const std::string& placeholderVmId,
                                                      const std::string& datastorePath,
                                                      const std::string& diskProvisioning);
@@ -98,6 +100,7 @@ VSphereSoap::Result<std::string> releaseImportedDisk(const ConnectParams& params
 /// An import checks its destination with this before uploading, since the final move refuses a taken name only
 /// after the whole disk has been sent.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string& datastorePath);
 
 /// Forces every disk currently attached to `vm` eager-zeroed
@@ -115,6 +118,7 @@ VSphereSoap::Result<bool> datastoreDiskExists(const ConnectParams& params, const
 /// when every disk currently on `vm` genuinely wants "eagerZeroedThick".
 /// Fails with `ErrorCode::IoError` on any connection/SOAP failure.
 ///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm);
 
 } // namespace VSphereSoap

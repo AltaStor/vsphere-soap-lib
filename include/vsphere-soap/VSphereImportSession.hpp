@@ -130,6 +130,7 @@ public:
     /// Dry run of `begin()`: connects, logs in and has the target check the VM's OVF descriptor and placement
     /// without creating anything.
     /// Fails with the error `begin()` would fail with at that step.
+    /// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
     static VSphereSoap::Error validate(const ConnectParams& params, const VSphereImportVmSpec& spec);
 
     /// Aborts the lease (best-effort) if `complete()` was never called successfully, then logs out: see

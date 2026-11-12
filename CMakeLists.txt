@@ -145,6 +145,8 @@ add_library(vsphere-soap STATIC
     src/VSphereFolderPutImport.cpp
     src/VSpherePlacement.cpp
     src/VmLookup.cpp
+    src/VimConnection.cpp
+    src/VSphereClient.cpp
 )
 add_library(VSphereSoap::vsphere-soap ALIAS vsphere-soap)
 
