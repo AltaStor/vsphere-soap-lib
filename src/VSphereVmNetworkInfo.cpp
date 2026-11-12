@@ -9,6 +9,7 @@
 #include <chrono>
 
 #include "DiskAttach.hpp"
+#include "VmLookup.hpp"
 #include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
@@ -27,14 +28,6 @@ using VSphereSoap::Result;
 namespace {
 using Detail::logger;
 
-Result<Vim::VmLocator> toInternalLocator(const VmLocator& vm)
-{
-    if (vm.moref) return Vim::VmLocator::byMoref(*vm.moref);
-    if (vm.uuid) return Vim::VmLocator::byUuid(*vm.uuid);
-    if (vm.inventoryPath) return Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
-    return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
-}
-
 const char* powerStateName(Vim::VimPowerState state)
 {
     switch (state) {
@@ -50,15 +43,8 @@ const char* powerStateName(Vim::VimPowerState state)
 Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const ConnectParams& params,
                                                                          const VmLocator& vm)
 {
-    Vim::VmLocator internalLocator;
-    if (vm.moref) {
-        internalLocator = Vim::VmLocator::byMoref(*vm.moref);
-    } else if (vm.uuid) {
-        internalLocator = Vim::VmLocator::byUuid(*vm.uuid);
-    } else if (vm.inventoryPath) {
-        internalLocator = Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
-    } else {
-        return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     logger()->info("listing network adapters on {}:{}", params.host, params.port);
@@ -75,7 +61,7 @@ Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const Conne
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator);
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -110,15 +96,8 @@ Result<std::vector<VSphereNetworkAdapterInfo>> listVmNetworkAdapters(const Conne
 
 Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
 {
-    Vim::VmLocator internalLocator;
-    if (vm.moref) {
-        internalLocator = Vim::VmLocator::byMoref(*vm.moref);
-    } else if (vm.uuid) {
-        internalLocator = Vim::VmLocator::byUuid(*vm.uuid);
-    } else if (vm.inventoryPath) {
-        internalLocator = Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
-    } else {
-        return Error(ErrorCode::InvalidArgument, "VmLocator has none of moref/uuid/inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -134,7 +113,7 @@ Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator);
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -148,9 +127,8 @@ Result<std::string> getVmNotes(const ConnectParams& params, const VmLocator& vm)
 
 Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params, const VmLocator& vm)
 {
-    auto internalLocator = toInternalLocator(vm);
-    if (!internalLocator) {
-        return std::move(internalLocator).error();
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -165,7 +143,7 @@ Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator.value());
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -185,9 +163,8 @@ Result<std::vector<VSphereDiskSummary>> listVmDisks(const ConnectParams& params,
 
 Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator& vm)
 {
-    auto internalLocator = toInternalLocator(vm);
-    if (!internalLocator) {
-        return std::move(internalLocator).error();
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -202,7 +179,7 @@ Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator.value());
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -215,9 +192,8 @@ Result<std::string> getVmPowerState(const ConnectParams& params, const VmLocator
 
 Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
 {
-    auto internalLocator = toInternalLocator(vm);
-    if (!internalLocator) {
-        return std::move(internalLocator).error();
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -232,7 +208,7 @@ Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator.value());
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -256,9 +232,8 @@ Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
 
 Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
 {
-    auto internalLocator = toInternalLocator(vm);
-    if (!internalLocator) {
-        return std::move(internalLocator).error();
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -273,7 +248,7 @@ Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator.value());
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -297,9 +272,8 @@ Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
 
 Error destroyVm(const ConnectParams& params, const VmLocator& vm)
 {
-    auto internalLocator = toInternalLocator(vm);
-    if (!internalLocator) {
-        return std::move(internalLocator).error();
+    if (Error invalid = Detail::checkVmLocator(vm, "VmLocator"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -314,7 +288,7 @@ Error destroyVm(const ConnectParams& params, const VmLocator& vm)
     auto session = std::move(sessionResult).value();
 
     Vim::VimInventory inventory(*session);
-    auto vmMorefResult = inventory.findVm(internalLocator.value());
+    auto vmMorefResult = Detail::findVm(inventory, vm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }

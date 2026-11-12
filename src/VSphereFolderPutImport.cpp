@@ -11,6 +11,7 @@
 #include "DiskAttach.hpp"
 #include "SnapshotScope.hpp"
 #include "TaskWait.hpp"
+#include "VmLookup.hpp"
 #include "vsphere-soap/vim/HttpTransportAdapter.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "SoapLog.hpp"
@@ -66,14 +67,6 @@ namespace {
 
 using Detail::logger;
 
-Vim::VmLocator toInternalLocator(const VmLocator& vm)
-{
-    if (vm.moref) return Vim::VmLocator::byMoref(*vm.moref);
-    if (vm.uuid) return Vim::VmLocator::byUuid(*vm.uuid);
-    if (vm.inventoryPath) return Vim::VmLocator::byInventoryPath(*vm.inventoryPath);
-    return {};
-}
-
 std::string ensureVmdkExtension(const std::string& name)
 {
     if (name.size() >= 5 && name.compare(name.size() - 5, 5, ".vmdk") == 0) {
@@ -93,11 +86,8 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& p
     if (spec.virtualSizeBytes == 0) {
         return Error(ErrorCode::InvalidArgument, "VSphereFolderPutPrepSpec::virtualSizeBytes must be nonzero");
     }
-    const Vim::VmLocator targetLocator = toInternalLocator(spec.targetVm);
-    if (targetLocator.moref.has_value() + targetLocator.uuid.has_value() + targetLocator.inventoryPath.has_value() ==
-        0) {
-        return Error(ErrorCode::InvalidArgument, "VSphereFolderPutPrepSpec::targetVm has none of moref/uuid/"
-                                                  "inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(spec.targetVm, "VSphereFolderPutPrepSpec::targetVm"); !invalid.ok()) {
+        return invalid;
     }
 
     logger()->info("preparing folder-put import for '{}' on {}:{}", spec.fileName, params.host, params.port);
@@ -117,7 +107,7 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& p
     std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
     Vim::VimInventory inventory(*session);
 
-    auto vmMorefResult = inventory.findVm(targetLocator);
+    auto vmMorefResult = Detail::findVm(inventory, spec.targetVm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -234,9 +224,8 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutImport(const ConnectParams& p
 Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm,
                                                              const DiskSelector& disk)
 {
-    const Vim::VmLocator locator = toInternalLocator(vm);
-    if (locator.moref.has_value() + locator.uuid.has_value() + locator.inventoryPath.has_value() == 0) {
-        return Error(ErrorCode::InvalidArgument, "vm has none of moref/uuid/inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(vm, "vm"); !invalid.ok()) {
+        return invalid;
     }
     if (!disk.key && !disk.datastorePath) {
         return Error(ErrorCode::InvalidArgument, "DiskSelector has neither key nor datastorePath set");
@@ -252,7 +241,7 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams
     std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
     Vim::VimInventory inventory(*session);
 
-    auto vmMoref = inventory.findVm(locator);
+    auto vmMoref = Detail::findVm(inventory, vm);
     if (!vmMoref) {
         return std::move(vmMoref).error();
     }
@@ -330,9 +319,8 @@ Result<VSphereFolderPutPrepResult> prepareFolderPutOverwrite(const ConnectParams
 
 Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm)
 {
-    const Vim::VmLocator locator = toInternalLocator(vm);
-    if (locator.moref.has_value() + locator.uuid.has_value() + locator.inventoryPath.has_value() == 0) {
-        return Error(ErrorCode::InvalidArgument, "vm has none of moref/uuid/inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(vm, "vm"); !invalid.ok()) {
+        return invalid;
     }
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate, params.pinnedThumbprint);
     Vim::SoapClient soap(transport, params.host);
@@ -343,7 +331,7 @@ Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm)
     Vim::VimSession& session = *sessionResult.value();
     Vim::VimInventory inventory(session);
 
-    auto vmMoref = inventory.findVm(locator);
+    auto vmMoref = Detail::findVm(inventory, vm);
     if (!vmMoref) {
         return std::move(vmMoref).error();
     }
@@ -402,10 +390,8 @@ Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, c
                                                      std::uint64_t virtualSizeBytes,
                                                      const VSphereAttachControllerSpec& controller)
 {
-    const Vim::VmLocator targetLocator = toInternalLocator(targetVm);
-    if (targetLocator.moref.has_value() + targetLocator.uuid.has_value() + targetLocator.inventoryPath.has_value() ==
-        0) {
-        return Error(ErrorCode::InvalidArgument, "targetVm has none of moref/uuid/inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(targetVm, "targetVm"); !invalid.ok()) {
+        return invalid;
     }
 
     Vim::HttpTransportAdapter transport(params.host, params.port, params.verifyTlsCertificate,
@@ -418,7 +404,7 @@ Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, c
     std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
     Vim::VimInventory inventory(*session);
 
-    auto vmMorefResult = inventory.findVm(targetLocator);
+    auto vmMorefResult = Detail::findVm(inventory, targetVm);
     if (!vmMorefResult) {
         return std::move(vmMorefResult).error();
     }
@@ -440,10 +426,8 @@ Result<VSphereAttachResult> finishFolderPutImport(const ConnectParams& params, c
 Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targetVm,
                                       const std::string& descriptorDatastorePath)
 {
-    const Vim::VmLocator targetLocator = toInternalLocator(targetVm);
-    if (targetLocator.moref.has_value() + targetLocator.uuid.has_value() + targetLocator.inventoryPath.has_value() ==
-        0) {
-        return Error(ErrorCode::InvalidArgument, "targetVm has none of moref/uuid/inventoryPath set");
+    if (Error invalid = Detail::checkVmLocator(targetVm, "targetVm"); !invalid.ok()) {
+        return invalid;
     }
     const auto parsedDescriptor = Vim::parseDatastorePath(descriptorDatastorePath);
     if (!parsedDescriptor) {
@@ -463,7 +447,7 @@ Error cleanupFolderPutImport(const ConnectParams& params, const VmLocator& targe
     std::unique_ptr<Vim::VimSession> session = std::move(sessionResult).value();
     Vim::VimInventory inventory(*session);
 
-    auto vmMorefResult = inventory.findVm(targetLocator);
+    auto vmMorefResult = Detail::findVm(inventory, targetVm);
     // Left empty (server infers from the path's own datastore) if this lookup fails.
     Vim::MoRef datacenter;
     if (vmMorefResult) {
