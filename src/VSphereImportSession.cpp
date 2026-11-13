@@ -187,7 +187,7 @@ Error VSphereImportSession::destroyPlaceholderVm()
     logger()->info("destroying placeholder VM {} (upload failed or was cancelled -- deleting its files too)",
                     vm.value);
     pugi::xml_document request = Vim::makeVimRequest("Destroy_Task", vm);
-    auto callResult = m_impl->m_session->call("urn:vim25/Destroy_Task", request.document_element());
+    auto callResult = m_impl->m_session->call(request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }

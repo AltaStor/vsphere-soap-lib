@@ -5,8 +5,8 @@
 
 #pragma once
 
-// Test double for VSphereSoap::Vim::IHttpTransport: returns scripted responses keyed by the request's
-// SOAPAction header (for SOAP calls) or by exact target (for plain GETs, e.g. datastore reads/descriptor
+// Test double for VSphereSoap::Vim::IHttpTransport: returns scripted responses keyed by the SOAP operation
+// in the request body (for SOAP calls) or by exact target (for plain GETs, e.g. datastore reads/descriptor
 // fetches).
 // Each call pops the next scripted response for its key, except the last one queued for a key, which is
 // returned repeatedly: lets a test script "page 1, page 2, then whatever comes after just keeps
@@ -19,16 +19,32 @@
 #include <string>
 #include <vector>
 
+#include <pugixml.hpp>
+
 #include "vsphere-soap/vim/IHttpTransport.hpp"
+#include "vsphere-soap/vim/SoapClient.hpp"
 #include "vsphere-soap/Error.hpp"
 
 namespace VSphereSoap::Test {
 
 class FakeHttpTransport final : public Vim::IHttpTransport {
 public:
-    void queueForSoapAction(const std::string& soapAction, Vim::HttpResponse response)
+    /// `operation` is the request element's name, e.g. "RetrievePropertiesEx".
+    void queueForOperation(const std::string& operation, Vim::HttpResponse response)
     {
-        m_bySoapAction[soapAction].push_back(std::move(response));
+        m_byOperation[operation].push_back(std::move(response));
+    }
+
+    /// The SOAP operation a request body carries, without a namespace prefix; empty for a body that isn't SOAP.
+    static std::string operationOf(const std::string& body)
+    {
+        pugi::xml_document doc;
+        if (!doc.load_string(body.c_str())) {
+            return {};
+        }
+        const std::string name = Vim::soapBodyContent(doc).name();
+        const auto colon = name.find(':');
+        return colon == std::string::npos ? name : name.substr(colon + 1);
     }
 
     void queueForTarget(const std::string& target, Vim::HttpResponse response)
@@ -51,11 +67,9 @@ public:
     {
         m_requests.push_back({method, target, headers, body});
 
-        for (const auto& header : headers) {
-            if (header.name == "SOAPAction") {
-                if (auto next = pop(m_bySoapAction, header.value)) {
-                    return *next;
-                }
+        if (const std::string operation = operationOf(body); !operation.empty()) {
+            if (auto next = pop(m_byOperation, operation)) {
+                return *next;
             }
         }
         if (auto next = pop(m_byTarget, target)) {
@@ -150,7 +164,7 @@ private:
         return response;
     }
 
-    std::map<std::string, std::deque<Vim::HttpResponse>> m_bySoapAction;
+    std::map<std::string, std::deque<Vim::HttpResponse>> m_byOperation;
     std::map<std::string, std::deque<Vim::HttpResponse>> m_byTarget;
 };
 

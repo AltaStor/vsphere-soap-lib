@@ -26,8 +26,8 @@ HttpResponse xmlResponse(unsigned int status, std::string body)
 TEST(SoapClientTest, WrapsRequestNodeInEnvelopeAndBody)
 {
     FakeHttpTransport transport;
-    transport.queueForSoapAction(
-        "urn:vim25/Foo",
+    transport.queueForOperation(
+        "Foo",
         xmlResponse(200, "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                          "<soapenv:Body><FooResponse xmlns=\"urn:vim25\"><returnval>ok</returnval>"
                          "</FooResponse></soapenv:Body></soapenv:Envelope>"));
@@ -39,7 +39,7 @@ TEST(SoapClientTest, WrapsRequestNodeInEnvelopeAndBody)
     op.append_attribute("xmlns") = "urn:vim25";
     op.append_child("_this").append_attribute("type") = "ServiceInstance";
 
-    auto result = client.call("urn:vim25/Foo", op);
+    auto result = client.call(op);
     ASSERT_TRUE(result.hasValue());
 
     const pugi::xml_node body = soapBodyContent(result.value());
@@ -64,8 +64,8 @@ TEST(SoapClientTest, WrapsRequestNodeInEnvelopeAndBody)
 TEST(SoapClientTest, DetectsFaultAndExtractsDetailType)
 {
     FakeHttpTransport transport;
-    transport.queueForSoapAction(
-        "urn:vim25/Login",
+    transport.queueForOperation(
+        "Login",
         xmlResponse(500, "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                          "<soapenv:Body><soapenv:Fault>"
                          "<faultcode>ServerFaultCode</faultcode>"
@@ -78,7 +78,7 @@ TEST(SoapClientTest, DetectsFaultAndExtractsDetailType)
     request.append_child("Login").append_attribute("xmlns") = "urn:vim25";
 
     SoapFaultInfo faultInfo;
-    auto result = client.call("urn:vim25/Login", request.document_element(), &faultInfo);
+    auto result = client.call(request.document_element(), &faultInfo);
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().code(), VSphereSoap::ErrorCode::IoError);
     EXPECT_EQ(faultInfo.typeName, "InvalidLogin");
@@ -90,14 +90,14 @@ TEST(SoapClientTest, CarriesSessionCookieOnSubsequentCallsOnly)
     FakeHttpTransport transport;
     HttpResponse withCookie = xmlResponse(200, "<Envelope><Body><FooResponse/></Body></Envelope>");
     withCookie.headers.push_back({"Set-Cookie", "vmware_soap_session=\"abc123\"; Path=/; HttpOnly; Secure"});
-    transport.queueForSoapAction("urn:vim25/Foo", withCookie);
-    transport.queueForSoapAction("urn:vim25/Foo", xmlResponse(200, "<Envelope><Body><FooResponse/></Body></Envelope>"));
+    transport.queueForOperation("Foo", withCookie);
+    transport.queueForOperation("Foo", xmlResponse(200, "<Envelope><Body><FooResponse/></Body></Envelope>"));
 
     SoapClient client(transport, "vcenter.example.com");
     pugi::xml_document request;
     request.append_child("Foo");
 
-    ASSERT_TRUE(client.call("urn:vim25/Foo", request.document_element()).hasValue());
+    ASSERT_TRUE(client.call(request.document_element()).hasValue());
     ASSERT_EQ(transport.m_requests.size(), 1u);
     bool firstHadCookie = false;
     for (const auto& header : transport.m_requests.back().headers) {
@@ -106,7 +106,7 @@ TEST(SoapClientTest, CarriesSessionCookieOnSubsequentCallsOnly)
     EXPECT_FALSE(firstHadCookie);
     EXPECT_EQ(client.sessionCookie(), "vmware_soap_session=\"abc123\"");
 
-    ASSERT_TRUE(client.call("urn:vim25/Foo", request.document_element()).hasValue());
+    ASSERT_TRUE(client.call(request.document_element()).hasValue());
     std::string secondCookieValue;
     for (const auto& header : transport.m_requests.back().headers) {
         if (header.name == "Cookie") {
@@ -114,6 +114,36 @@ TEST(SoapClientTest, CarriesSessionCookieOnSubsequentCallsOnly)
         }
     }
     EXPECT_EQ(secondCookieValue, "vmware_soap_session=\"abc123\"");
+}
+
+// The value of header `name` a request went out with, empty if it had none.
+std::string sentHeader(const FakeHttpTransport::RecordedRequest& request, const std::string& name)
+{
+    for (const auto& header : request.headers) {
+        if (header.name == name) {
+            return header.value;
+        }
+    }
+    return {};
+}
+
+TEST(SoapClientTest, SendsApiVersionAsSoapAction)
+{
+    FakeHttpTransport transport;
+    transport.queueForOperation("Foo", xmlResponse(200, "<Envelope><Body><FooResponse/></Body></Envelope>"));
+
+    SoapClient client(transport, "vcenter.example.com");
+    pugi::xml_document request;
+    request.append_child("Foo");
+
+    // Until a session tells it the server's version, the client uses the baseline.
+    EXPECT_EQ(client.apiVersion(), "6.7");
+    ASSERT_TRUE(client.call(request.document_element()).hasValue());
+    EXPECT_EQ(sentHeader(transport.m_requests.back(), "SOAPAction"), "urn:vim25/6.7");
+
+    client.setApiVersion("8.0.3.0");
+    ASSERT_TRUE(client.call(request.document_element()).hasValue());
+    EXPECT_EQ(sentHeader(transport.m_requests.back(), "SOAPAction"), "urn:vim25/8.0.3.0");
 }
 
 TEST(SoapBodyContentTest, FindsBodyRegardlessOfNamespacePrefix)

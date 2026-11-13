@@ -23,6 +23,7 @@ using VSphereSoap::Result;
 class VimSession {
 public:
     /// Connects `soap` (RetrieveServiceContent) and logs in with `username`/`password`.
+    /// Switches `soap` to the server's own API version, so later calls get every field the server has.
     /// `soap` must outlive the returned session.
     /// Fails with `ErrorCode::IoError` on transport/auth failure, `ErrorCode::InvalidFormat` if
     /// RetrieveServiceContent's response is missing an expected MoRef.
@@ -74,7 +75,7 @@ public:
     /// Posts `requestNode` (see `SoapClient::call`) through this session. vSphere sessions expire
     /// server-side; if the call faults with `NotAuthenticated`, this re-`Login`s once and retries
     /// the same call before giving up.
-    Result<pugi::xml_document> call(const std::string& soapAction, const pugi::xml_node& requestNode);
+    Result<pugi::xml_document> call(const pugi::xml_node& requestNode);
 
 private:
     VimSession(SoapClient& soap, std::string username, std::string password, MoRef propertyCollector,

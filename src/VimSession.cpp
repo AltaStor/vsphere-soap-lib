@@ -5,6 +5,8 @@
 
 #include "vsphere-soap/vim/VimSession.hpp"
 
+#include <string_view>
+
 #include "SoapLog.hpp"
 #include "vsphere-soap/Error.hpp"
 
@@ -21,13 +23,30 @@ namespace {
 // it's not discovered, it's a constant of the API.
 const MoRef kServiceInstance{"ServiceInstance", "ServiceInstance"};
 
+// "8.0.3.0" or "6.7": digits separated by single dots, which is also what makes it safe to put in a header.
+bool isApiVersion(std::string_view version)
+{
+    bool expectDigit = true;
+    for (const char c : version) {
+        if (c == '.' && !expectDigit) {
+            expectDigit = true;
+            continue;
+        }
+        if (c < '0' || c > '9') {
+            return false;
+        }
+        expectDigit = false;
+    }
+    return !expectDigit;
+}
+
 } // namespace
 
 Result<std::unique_ptr<VimSession>> VimSession::open(SoapClient& soap, std::string username, std::string password)
 {
     logger()->debug("retrieving ServiceContent for {}", username);
     const pugi::xml_document request = makeVimRequest("RetrieveServiceContent", kServiceInstance);
-    auto callResult = soap.call("urn:vim25/RetrieveServiceContent", request.document_element());
+    auto callResult = soap.call(request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -36,6 +55,16 @@ Result<std::unique_ptr<VimSession>> VimSession::open(SoapClient& soap, std::stri
     const pugi::xml_node serviceContent = returnval(responseElement);
     if (!serviceContent) {
         return Error(ErrorCode::InvalidFormat, "RetrieveServiceContent response missing <returnval>");
+    }
+
+    // The server's newest version is always one it accepts.
+    // Without it the client stays on the baseline, which only costs fields newer than that.
+    const std::string apiVersion = serviceContent.child("about").child("apiVersion").text().as_string();
+    if (isApiVersion(apiVersion)) {
+        soap.setApiVersion(apiVersion);
+        logger()->debug("using vim25 API version {}", apiVersion);
+    } else {
+        logger()->warn("server reports no usable API version ('{}'), staying on {}", apiVersion, soap.apiVersion());
     }
 
     MoRef rootFolder = parseMoRef(serviceContent.child("rootFolder"));
@@ -91,7 +120,7 @@ Error VimSession::login()
     op.append_child("userName").text() = m_username.c_str();
     op.append_child("password").text() = m_password.c_str();
 
-    auto callResult = m_soap.call("urn:vim25/Login", op);
+    auto callResult = m_soap.call(op);
     if (!callResult) {
         logger()->warn("SOAP login as {} failed: {}", m_username, callResult.error().toString());
         return std::move(callResult).error();
@@ -107,17 +136,17 @@ void VimSession::logoutBestEffort() noexcept
         logger()->debug("logging out ({})", m_username);
         const pugi::xml_document request = makeVimRequest("Logout", m_sessionManager);
         // best-effort: result intentionally unchecked
-        (void)m_soap.call("urn:vim25/Logout", request.document_element());
+        (void)m_soap.call(request.document_element());
     } catch (...) {
         // Never propagate out of a destructor; a failed Logout just leaves the session to expire
         // server-side on its own.
     }
 }
 
-Result<pugi::xml_document> VimSession::call(const std::string& soapAction, const pugi::xml_node& requestNode)
+Result<pugi::xml_document> VimSession::call(const pugi::xml_node& requestNode)
 {
     SoapFaultInfo faultInfo;
-    auto result = m_soap.call(soapAction, requestNode, &faultInfo);
+    auto result = m_soap.call(requestNode, &faultInfo);
     if (result) {
         return result;
     }
@@ -125,12 +154,12 @@ Result<pugi::xml_document> VimSession::call(const std::string& soapAction, const
         return std::move(result).error();
     }
 
-    logger()->info("session not authenticated for {}, re-logging in and retrying", soapAction);
+    logger()->info("session not authenticated for {}, re-logging in and retrying", requestNode.name());
     Error reloginResult = login();
     if (!reloginResult.ok()) {
         return reloginResult;
     }
-    return m_soap.call(soapAction, requestNode);
+    return m_soap.call(requestNode);
 }
 
 } // namespace VSphereSoap::Vim

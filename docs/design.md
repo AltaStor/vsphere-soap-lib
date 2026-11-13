@@ -29,6 +29,11 @@ Three layers, each usable on its own:
 The first `Set-Cookie` of the login answer becomes the session cookie for every later SOAP call and for the
 datastore `/folder/` requests, which accept the same cookie.
 
+The `SOAPAction` header is `urn:vim25/<version>`, as the WSDL declares, and it selects the API version the server
+answers in. `RetrieveServiceContent` goes out on the baseline 6.7, which every ESXi and vCenter from 6.7 on accepts,
+and the session then switches to the server's own `about.apiVersion`. ESXi and vCenter 8.0.3 answer an unknown value
+in their newest version and a request without the header in a 2.x-era one, so neither is relied on.
+
 A `NotAuthenticated` fault makes `VimSession::call()` log in again and retry once; any other fault, or a second
 `NotAuthenticated`, is returned as is. The destructor logs out on a best-effort basis.
 That logout invalidates the cookie at once, which is why the folder-put import keeps its session alive in an

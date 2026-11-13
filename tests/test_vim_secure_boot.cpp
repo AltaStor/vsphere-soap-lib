@@ -34,8 +34,8 @@ HttpResponse xmlResponse(const std::string& responseElement)
 
 void scriptSessionBootstrap(FakeHttpTransport& transport)
 {
-    transport.queueForSoapAction(
-        "urn:vim25/RetrieveServiceContent",
+    transport.queueForOperation(
+        "RetrieveServiceContent",
         xmlResponse("<RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                     "<rootFolder type=\"Folder\">ha-folder-root</rootFolder>"
                     "<propertyCollector type=\"PropertyCollector\">ha-property-collector</propertyCollector>"
@@ -43,7 +43,7 @@ void scriptSessionBootstrap(FakeHttpTransport& transport)
                     "<searchIndex type=\"SearchIndex\">ha-searchindex</searchIndex>"
                     "<sessionManager type=\"SessionManager\">ha-sessionmgr</sessionManager>"
                     "</returnval></RetrieveServiceContentResponse>"));
-    transport.queueForSoapAction("urn:vim25/Login",
+    transport.queueForOperation("Login",
                                  xmlResponse("<LoginResponse xmlns=\"urn:vim25\"><returnval><key>k</key>"
                                              "</returnval></LoginResponse>"));
 }
@@ -56,15 +56,13 @@ HttpResponse vmProperties(const std::string& propSets)
                        propSets + "</objects></returnval></RetrievePropertiesExResponse>");
 }
 
-pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& soapAction)
+pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& operation)
 {
     pugi::xml_document doc;
     for (const auto& request : transport.m_requests) {
-        for (const auto& h : request.headers) {
-            if (h.name == "SOAPAction" && h.value == soapAction) {
-                doc.load_string(request.body.c_str());
-                return doc;
-            }
+        if (FakeHttpTransport::operationOf(request.body) == operation) {
+            doc.load_string(request.body.c_str());
+            return doc;
         }
     }
     return doc;
@@ -91,8 +89,8 @@ TEST(VimSecureBootTest, ReadsSecureBootOnWithThatPropertyAlone)
 {
     Fixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         vmProperties("<propSet><name>config.bootOptions.efiSecureBootEnabled</name>"
                      "<val xsi:type=\"xsd:boolean\">true</val></propSet>"));
 
@@ -100,7 +98,7 @@ TEST(VimSecureBootTest, ReadsSecureBootOnWithThatPropertyAlone)
     ASSERT_TRUE(secureBoot.hasValue()) << secureBoot.error().toString();
     EXPECT_EQ(secureBoot.value(), std::optional<bool>(true));
 
-    const auto sent = sentRequestBody(fixture.transport, "urn:vim25/RetrievePropertiesEx");
+    const auto sent = sentRequestBody(fixture.transport, "RetrievePropertiesEx");
     const auto paths = sent.select_nodes("//pathSet");
     ASSERT_EQ(paths.size(), 1u);
     EXPECT_STREQ(paths.first().node().text().as_string(), "config.bootOptions.efiSecureBootEnabled");
@@ -111,8 +109,8 @@ TEST(VimSecureBootTest, ReadsSecureBootOff)
 {
     Fixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         vmProperties("<propSet><name>config.bootOptions.efiSecureBootEnabled</name>"
                      "<val xsi:type=\"xsd:boolean\">false</val></propSet>"));
 
@@ -125,7 +123,7 @@ TEST(VimSecureBootTest, PropertyTheServerDidNotReturnIsUnknown)
 {
     Fixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction("urn:vim25/RetrievePropertiesEx", vmProperties(""));
+    fixture.transport.queueForOperation("RetrievePropertiesEx", vmProperties(""));
 
     auto secureBoot = describeSecureBootOfVm1(fixture);
     ASSERT_TRUE(secureBoot.hasValue()) << secureBoot.error().toString();
@@ -136,8 +134,8 @@ TEST(VimSecureBootTest, FailsForAVmTheServerDoesNotReturn)
 {
     Fixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse("<RetrievePropertiesExResponse xmlns=\"urn:vim25\"></RetrievePropertiesExResponse>"));
 
     auto secureBoot = describeSecureBootOfVm1(fixture);
@@ -153,7 +151,7 @@ TEST(VimSecureBootTest, PassesASoapFaultOnAsAnError)
                                      "<faultstring>a fault</faultstring>"
                                      "<detail><RuntimeFaultFault xmlns=\"urn:vim25\"/></detail></soapenv:Fault>");
     fault.status = 500;
-    fixture.transport.queueForSoapAction("urn:vim25/RetrievePropertiesEx", fault);
+    fixture.transport.queueForOperation("RetrievePropertiesEx", fault);
 
     auto secureBoot = describeSecureBootOfVm1(fixture);
     ASSERT_FALSE(secureBoot.hasValue());

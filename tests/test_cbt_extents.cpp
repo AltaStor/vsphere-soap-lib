@@ -30,8 +30,8 @@ HttpResponse xmlResponse(std::string body)
 // call can go through: shared by every test here that needs a live VimSession.
 void scriptSessionBootstrap(FakeHttpTransport& transport)
 {
-    transport.queueForSoapAction(
-        "urn:vim25/RetrieveServiceContent",
+    transport.queueForOperation(
+        "RetrieveServiceContent",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                     "<rootFolder type=\"Folder\">group-d1</rootFolder>"
@@ -39,8 +39,8 @@ void scriptSessionBootstrap(FakeHttpTransport& transport)
                     "<searchIndex type=\"SearchIndex\">SearchIndex</searchIndex>"
                     "<sessionManager type=\"SessionManager\">SessionManager</sessionManager>"
                     "</returnval></RetrieveServiceContentResponse></soapenv:Body></soapenv:Envelope>"));
-    transport.queueForSoapAction(
-        "urn:vim25/Login",
+    transport.queueForOperation(
+        "Login",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><LoginResponse xmlns=\"urn:vim25\"><returnval>"
                     "<key>session-key</key></returnval></LoginResponse></soapenv:Body></soapenv:Envelope>"));
@@ -177,11 +177,11 @@ TEST(CbtQueryLoopTest, LoopsUntilDiskCapacityIsCoveredAndPreservesExtentOrder)
     // Page 1 covers [0, 6'000'000); page 2 covers [6'000'000, 10'000'000), reaching the 10'000'000-byte
     // disk capacity: queryLoop must issue a second QueryChangedDiskAreas with startOffset=6'000'000, not
     // assume one call covers the whole disk.
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/QueryChangedDiskAreas",
+    fixture.transport.queueForOperation(
+        "QueryChangedDiskAreas",
         xmlResponse(queryChangedDiskAreasResponse(0, 6'000'000, {{0, 1'000'000}, {2'000'000, 500'000}})));
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/QueryChangedDiskAreas",
+    fixture.transport.queueForOperation(
+        "QueryChangedDiskAreas",
         xmlResponse(queryChangedDiskAreasResponse(6'000'000, 4'000'000, {{8'000'000, 2'000'000}})));
 
     auto session = VimSession::open(fixture.soap, "user", "pass");
@@ -208,8 +208,8 @@ TEST(CbtQueryLoopTest, LeavesTheSnapshotOutWhenThereIsNone)
 {
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/QueryChangedDiskAreas",
+    fixture.transport.queueForOperation(
+        "QueryChangedDiskAreas",
         xmlResponse(queryChangedDiskAreasResponse(0, 10'000'000, {{4096, 8192}})));
 
     auto session = VimSession::open(fixture.soap, "user", "pass");
@@ -233,7 +233,7 @@ TEST(CbtQueryLoopTest, FailsRatherThanLoopingForeverOnNoProgress)
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
     // startOffset + length == 0, i.e. no progress past offset 0.
-    fixture.transport.queueForSoapAction("urn:vim25/QueryChangedDiskAreas",
+    fixture.transport.queueForOperation("QueryChangedDiskAreas",
                                           xmlResponse(queryChangedDiskAreasResponse(0, 0, {})));
 
     auto session = VimSession::open(fixture.soap, "user", "pass");
@@ -263,8 +263,8 @@ TEST(DescribeSnapshotDisksTest, ReadsTheDiskChainAndChangeIdAtTheSnapshot)
 {
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" "
                     "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><soapenv:Body>"
                     "<RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"

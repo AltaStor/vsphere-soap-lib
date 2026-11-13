@@ -12,6 +12,7 @@
 // Hand-written against the VIM operations this library needs: no gSOAP, no WSDL codegen.
 
 #include <string>
+#include <utility>
 
 #include <pugixml.hpp>
 
@@ -38,13 +39,18 @@ struct SoapFaultInfo {
 
 class SoapClient {
 public:
+    /// API version used until the server's own is known.
+    /// Every ESXi and vCenter from 6.7 on accepts it, and it has every ServiceContent field a session reads.
+    static constexpr const char* kBaselineApiVersion = "6.7";
+
     /// `transport` must outlive this object.
     /// `path` is the vSphere SDK endpoint, "/sdk" for both ESXi and vCenter.
     SoapClient(IHttpTransport& transport, std::string host, std::string path = "/sdk");
 
     /// Posts one SOAP envelope wrapping a deep copy of `requestNode` (the already-namespaced VIM request
-    /// element, e.g. `<RetrieveServiceContent xmlns="urn:vim25">...`) inside `<soapenv:Body>`, with
-    /// `soapAction` as the `SOAPAction` header.
+    /// element, e.g. `<RetrieveServiceContent xmlns="urn:vim25">...`) inside `<soapenv:Body>`.
+    /// The `SOAPAction` header is "urn:vim25/" plus `apiVersion()`, which is how the server picks the API
+    /// version it answers in.
     /// Attaches the session cookie captured from a prior response's `Set-Cookie`, if any.
     ///
     /// On success, returns the full parsed response document; use `soapBodyContent(doc)` to reach
@@ -55,8 +61,12 @@ public:
     /// non-null, is populated only for the fault case); `ErrorCode::InvalidFormat` if the response isn't
     /// parseable XML or lacks a `Body` element.
     ///
-    Result<pugi::xml_document> call(const std::string& soapAction, const pugi::xml_node& requestNode,
-                                                     SoapFaultInfo* faultInfo = nullptr);
+    Result<pugi::xml_document> call(const pugi::xml_node& requestNode, SoapFaultInfo* faultInfo = nullptr);
+
+    /// The vim25 API version sent with every call, `kBaselineApiVersion` until set.
+    /// A session sets it to the server's `about.apiVersion` once connected.
+    const std::string& apiVersion() const noexcept { return m_apiVersion; }
+    void setApiVersion(std::string version) { m_apiVersion = std::move(version); }
 
     /// The "name=value" Cookie header value captured from the last response's Set-Cookie, if any: empty
     /// until the first `call()` response carries one.
@@ -76,6 +86,7 @@ private:
     IHttpTransport& m_transport;
     std::string m_host;
     std::string m_path;
+    std::string m_apiVersion = kBaselineApiVersion;
     /// "name=value" Cookie header value; empty until captured from Set-Cookie.
     std::string m_sessionCookie;
 };

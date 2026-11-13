@@ -38,7 +38,7 @@ Result<MoRef> waitForVimTask(VimSession& session, const MoRef& task)
         obj.text() = task.value.c_str();
         op.append_child("options");
 
-        auto callResult = session.call("urn:vim25/RetrievePropertiesEx", op);
+        auto callResult = session.call(op);
         if (!callResult) {
             return std::move(callResult).error();
         }

@@ -78,23 +78,23 @@ struct ExportFixture {
 
     ExportFixture(HttpResponse data)
     {
-        soapTransport.queueForSoapAction(
-            "urn:vim25/RetrieveServiceContent",
+        soapTransport.queueForOperation(
+            "RetrieveServiceContent",
             ok(envelope("<RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                         "<rootFolder type=\"Folder\">group-d1</rootFolder>"
                         "<propertyCollector type=\"PropertyCollector\">propertyCollector</propertyCollector>"
                         "<searchIndex type=\"SearchIndex\">SearchIndex</searchIndex>"
                         "<sessionManager type=\"SessionManager\">SessionManager</sessionManager>"
                         "</returnval></RetrieveServiceContentResponse>")));
-        soapTransport.queueForSoapAction(
-            "urn:vim25/Login",
+        soapTransport.queueForOperation(
+            "Login",
             ok(envelope("<LoginResponse xmlns=\"urn:vim25\"><returnval><key>k</key></returnval></LoginResponse>")));
-        soapTransport.queueForSoapAction(
-            "urn:vim25/ExportSnapshot",
+        soapTransport.queueForOperation(
+            "ExportSnapshot",
             ok(envelope("<ExportSnapshotResponse xmlns=\"urn:vim25\"><returnval type=\"HttpNfcLease\">lease-1"
                         "</returnval></ExportSnapshotResponse>")));
-        soapTransport.queueForSoapAction(
-            "urn:vim25/RetrievePropertiesEx",
+        soapTransport.queueForOperation(
+            "RetrievePropertiesEx",
             ok(envelope("<RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
                         "<obj type=\"HttpNfcLease\">lease-1</obj>"
                         "<propSet><name>state</name><val>ready</val></propSet>"
@@ -105,9 +105,9 @@ struct ExportFixture {
                         "<deviceUrl><key>/vm-1/nvram</key><url>https://*/nfc/ticket/disk-1.nvram</url>"
                         "<disk>false</disk></deviceUrl>"
                         "</val></propSet></objects></returnval></RetrievePropertiesExResponse>")));
-        for (const char* action : {"urn:vim25/HttpNfcLeaseComplete", "urn:vim25/HttpNfcLeaseAbort",
-                                   "urn:vim25/HttpNfcLeaseProgress", "urn:vim25/Logout"}) {
-            soapTransport.queueForSoapAction(action, ok(envelope("<Response xmlns=\"urn:vim25\"/>")));
+        for (const char* action : {"HttpNfcLeaseComplete", "HttpNfcLeaseAbort",
+                                   "HttpNfcLeaseProgress", "Logout"}) {
+            soapTransport.queueForOperation(action, ok(envelope("<Response xmlns=\"urn:vim25\"/>")));
         }
         m_data = std::move(data);
     }
@@ -125,12 +125,10 @@ struct ExportFixture {
         };
     }
 
-    bool called(const std::string& action) const
+    bool called(const std::string& operation) const
     {
         return std::any_of(soapTransport.m_requests.begin(), soapTransport.m_requests.end(), [&](const auto& request) {
-            return std::any_of(request.headers.begin(), request.headers.end(), [&](const HttpHeader& header) {
-                return header.name == "SOAPAction" && header.value == action;
-            });
+            return FakeHttpTransport::operationOf(request.body) == operation;
         });
     }
 
@@ -170,8 +168,8 @@ TEST(ExportStreamReaderTest, ReadsGrainsAndZerosInAscendingOrder)
         std::vector<std::byte> past(16);
         EXPECT_EQ(reader.value()->readAt(kCapacity, past).value(), 0u);
     }
-    EXPECT_TRUE(fixture.called("urn:vim25/HttpNfcLeaseComplete"));
-    EXPECT_FALSE(fixture.called("urn:vim25/HttpNfcLeaseAbort"));
+    EXPECT_TRUE(fixture.called("HttpNfcLeaseComplete"));
+    EXPECT_FALSE(fixture.called("HttpNfcLeaseAbort"));
 }
 
 TEST(ExportStreamReaderTest, RefusesAReadBehindWhatWasPassed)
@@ -209,8 +207,8 @@ TEST(ExportStreamReaderTest, ReportsAFailedDownloadAndAbortsTheLease)
         EXPECT_EQ(read.error().code(), ErrorCode::IoError);
         EXPECT_NE(read.error().message().find("HTTP 500"), std::string::npos);
     }
-    EXPECT_TRUE(fixture.called("urn:vim25/HttpNfcLeaseAbort"));
-    EXPECT_FALSE(fixture.called("urn:vim25/HttpNfcLeaseComplete"));
+    EXPECT_TRUE(fixture.called("HttpNfcLeaseAbort"));
+    EXPECT_FALSE(fixture.called("HttpNfcLeaseComplete"));
 }
 
 TEST(ExportStreamReaderTest, PicksTheDiskUrlByControllerSlot)

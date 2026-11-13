@@ -358,7 +358,7 @@ Error finishFolderPutOverwrite(const ConnectParams& params, const VmLocator& vm)
     const auto setChangeTracking = [&](bool enabled) -> Error {
         pugi::xml_document request = Vim::makeVimRequest("ReconfigVM_Task", vmMoref.value());
         request.document_element().append_child("spec").append_child("changeTrackingEnabled").text() = enabled;
-        auto call = session.call("urn:vim25/ReconfigVM_Task", request.document_element());
+        auto call = session.call(request.document_element());
         if (!call) {
             return std::move(call).error();
         }

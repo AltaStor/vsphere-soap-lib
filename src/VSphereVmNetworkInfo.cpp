@@ -239,7 +239,7 @@ Error powerOnVm(const ConnectParams& params, const VmLocator& vm)
 
     logger()->info("powering on VM {}", vmMorefResult.value().value);
     pugi::xml_document request = Vim::makeVimRequest("PowerOnVM_Task", vmMorefResult.value());
-    auto callResult = session->call("urn:vim25/PowerOnVM_Task", request.document_element());
+    auto callResult = session->call(request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -280,7 +280,7 @@ Error powerOffVm(const ConnectParams& params, const VmLocator& vm)
 
     logger()->info("powering off VM {}", vmMorefResult.value().value);
     pugi::xml_document request = Vim::makeVimRequest("PowerOffVM_Task", vmMorefResult.value());
-    auto callResult = session->call("urn:vim25/PowerOffVM_Task", request.document_element());
+    auto callResult = session->call(request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -321,7 +321,7 @@ Error destroyVm(const ConnectParams& params, const VmLocator& vm)
 
     logger()->info("destroying VM {}", vmMorefResult.value().value);
     pugi::xml_document request = Vim::makeVimRequest("Destroy_Task", vmMorefResult.value());
-    auto callResult = session->call("urn:vim25/Destroy_Task", request.document_element());
+    auto callResult = session->call(request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }

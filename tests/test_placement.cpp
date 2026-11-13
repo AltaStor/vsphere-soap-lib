@@ -68,8 +68,8 @@ struct Fixture {
 
     Fixture()
     {
-        transport.queueForSoapAction(
-            "urn:vim25/RetrieveServiceContent",
+        transport.queueForOperation(
+            "RetrieveServiceContent",
             xmlResponse("<RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                         "<rootFolder type=\"Folder\">group-d1</rootFolder>"
                         "<propertyCollector type=\"PropertyCollector\">propertyCollector</propertyCollector>"
@@ -77,20 +77,20 @@ struct Fixture {
                         "<searchIndex type=\"SearchIndex\">SearchIndex</searchIndex>"
                         "<sessionManager type=\"SessionManager\">SessionManager</sessionManager>"
                         "</returnval></RetrieveServiceContentResponse>"));
-        transport.queueForSoapAction("urn:vim25/Login",
+        transport.queueForOperation("Login",
                                      xmlResponse("<LoginResponse xmlns=\"urn:vim25\"><returnval><key>k</key>"
                                                  "</returnval></LoginResponse>"));
-        transport.queueForSoapAction("urn:vim25/CreateContainerView",
+        transport.queueForOperation("CreateContainerView",
                                      xmlResponse("<CreateContainerViewResponse xmlns=\"urn:vim25\">"
                                                  "<returnval type=\"ContainerView\">session[1]view-1</returnval>"
                                                  "</CreateContainerViewResponse>"));
-        transport.queueForSoapAction("urn:vim25/DestroyView",
+        transport.queueForOperation("DestroyView",
                                      xmlResponse("<DestroyViewResponse xmlns=\"urn:vim25\"></DestroyViewResponse>"));
     }
 
     void answer(HttpResponse response)
     {
-        transport.queueForSoapAction("urn:vim25/RetrievePropertiesEx", std::move(response));
+        transport.queueForOperation("RetrievePropertiesEx", std::move(response));
     }
 
     void answerDatastores()

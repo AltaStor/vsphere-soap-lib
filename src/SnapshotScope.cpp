@@ -28,7 +28,7 @@ Result<MoRef> beginRemoveSnapshot(VimSession& session, const MoRef& snapshot)
     op.append_child("removeChildren").text() = "false";
     op.append_child("consolidate").text() = "true";
 
-    auto callResult = session.call("urn:vim25/RemoveSnapshot_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -80,7 +80,7 @@ Result<std::optional<MoRef>> findExistingSnapshotByName(VimSession& session, con
     obj.text() = vm.value.c_str();
     op.append_child("options");
 
-    auto callResult = session.call("urn:vim25/RetrievePropertiesEx", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -144,7 +144,7 @@ Result<std::unique_ptr<SnapshotScope>> SnapshotScope::create(VimSession& session
     op.append_child("memory").text() = "false";
     op.append_child("quiesce").text() = quiesce ? "true" : "false";
 
-    auto callResult = session.call("urn:vim25/CreateSnapshot_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }

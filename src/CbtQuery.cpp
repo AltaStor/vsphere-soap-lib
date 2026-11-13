@@ -100,7 +100,7 @@ Result<std::vector<Extent>> CbtQuery::queryLoop(const MoRef& vm, const MoRef& sn
         op.append_child("startOffset").text() = std::to_string(offset).c_str();
         op.append_child("changeId").text() = changeId.c_str();
 
-        auto callResult = m_session.call("urn:vim25/QueryChangedDiskAreas", op);
+        auto callResult = m_session.call(op);
         if (!callResult) {
             return std::move(callResult).error();
         }

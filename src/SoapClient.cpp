@@ -62,11 +62,11 @@ pugi::xml_node soapBodyContent(const pugi::xml_document& doc)
 SoapClient::SoapClient(IHttpTransport& transport, std::string host, std::string path)
     : m_transport(transport), m_host(std::move(host)), m_path(std::move(path)) {}
 
-Result<pugi::xml_document> SoapClient::call(const std::string& soapAction, const pugi::xml_node& requestNode,
-                                              SoapFaultInfo* faultInfo)
+Result<pugi::xml_document> SoapClient::call(const pugi::xml_node& requestNode, SoapFaultInfo* faultInfo)
 {
     const auto start = std::chrono::steady_clock::now();
-    logger()->debug("-> {} {}", m_host, soapAction);
+    const std::string_view operation = localName(requestNode.name());
+    logger()->debug("-> {} {} (vim25/{})", m_host, operation, m_apiVersion);
     pugi::xml_document envelope;
     pugi::xml_node envelopeNode = envelope.append_child("soapenv:Envelope");
     envelopeNode.append_attribute("xmlns:soapenv") = "http://schemas.xmlsoap.org/soap/envelope/";
@@ -78,7 +78,7 @@ Result<pugi::xml_document> SoapClient::call(const std::string& soapAction, const
 
     std::vector<HttpHeader> headers{
         {"Content-Type", "text/xml; charset=utf-8"},
-        {"SOAPAction", soapAction},
+        {"SOAPAction", "urn:vim25/" + m_apiVersion},
     };
     if (!m_sessionCookie.empty()) {
         headers.push_back({"Cookie", m_sessionCookie});
@@ -86,7 +86,7 @@ Result<pugi::xml_document> SoapClient::call(const std::string& soapAction, const
 
     auto responseResult = m_transport.request(HttpMethod::Post, m_path, headers, requestXml.str());
     if (!responseResult) {
-        logger()->warn("{} {} failed: {}", m_host, soapAction, responseResult.error().toString());
+        logger()->warn("{} {} failed: {}", m_host, operation, responseResult.error().toString());
         return std::move(responseResult).error();
     }
     const HttpResponse& response = responseResult.value();
@@ -122,13 +122,13 @@ Result<pugi::xml_document> SoapClient::call(const std::string& soapAction, const
             faultInfo->typeName = typeName;
             faultInfo->faultString = faultString;
         }
-        logger()->warn("{} {} returned a SOAP fault{}: {}", m_host, soapAction,
+        logger()->warn("{} {} returned a SOAP fault{}: {}", m_host, operation,
                         typeName.empty() ? "" : " (" + typeName + ")", faultString);
         return Error(ErrorCode::IoError, "vSphere SOAP fault" + (typeName.empty() ? "" : " (" + typeName + ")") +
                                               " from " + m_host + m_path + ": " + faultString);
     }
 
-    logger()->debug("<- {} {} (HTTP {}) in {:.1f}ms", m_host, soapAction, response.status,
+    logger()->debug("<- {} {} (HTTP {}) in {:.1f}ms", m_host, operation, response.status,
                      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     return doc;
 }

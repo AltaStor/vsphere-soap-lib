@@ -34,8 +34,8 @@ HttpResponse xmlResponse(const std::string& responseElement)
 // An ESXi host's ServiceContent: ha-* morefs, and a viewManager.
 void scriptEsxiSessionBootstrap(FakeHttpTransport& transport)
 {
-    transport.queueForSoapAction(
-        "urn:vim25/RetrieveServiceContent",
+    transport.queueForOperation(
+        "RetrieveServiceContent",
         xmlResponse("<RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                     "<rootFolder type=\"Folder\">ha-folder-root</rootFolder>"
                     "<propertyCollector type=\"PropertyCollector\">ha-property-collector</propertyCollector>"
@@ -44,34 +44,32 @@ void scriptEsxiSessionBootstrap(FakeHttpTransport& transport)
                     "<searchIndex type=\"SearchIndex\">ha-searchindex</searchIndex>"
                     "<sessionManager type=\"SessionManager\">ha-sessionmgr</sessionManager>"
                     "</returnval></RetrieveServiceContentResponse>"));
-    transport.queueForSoapAction("urn:vim25/Login",
+    transport.queueForOperation("Login",
                                  xmlResponse("<LoginResponse xmlns=\"urn:vim25\"><returnval><key>k</key>"
                                              "</returnval></LoginResponse>"));
-    transport.queueForSoapAction("urn:vim25/CreateContainerView",
+    transport.queueForOperation("CreateContainerView",
                                  xmlResponse("<CreateContainerViewResponse xmlns=\"urn:vim25\">"
                                              "<returnval type=\"ContainerView\">session[1]view-1</returnval>"
                                              "</CreateContainerViewResponse>"));
-    transport.queueForSoapAction("urn:vim25/DestroyView",
+    transport.queueForOperation("DestroyView",
                                  xmlResponse("<DestroyViewResponse xmlns=\"urn:vim25\"></DestroyViewResponse>"));
 }
 
-pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& soapAction)
+pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& operation)
 {
     pugi::xml_document doc;
     for (const auto& request : transport.m_requests) {
-        for (const auto& h : request.headers) {
-            if (h.name == "SOAPAction" && h.value == soapAction) {
-                doc.load_string(request.body.c_str());
-                return doc;
-            }
+        if (FakeHttpTransport::operationOf(request.body) == operation) {
+            doc.load_string(request.body.c_str());
+            return doc;
         }
     }
     return doc;
 }
 
-bool wasSent(const FakeHttpTransport& transport, const std::string& soapAction)
+bool wasSent(const FakeHttpTransport& transport, const std::string& operation)
 {
-    return static_cast<bool>(sentRequestBody(transport, soapAction).first_child());
+    return static_cast<bool>(sentRequestBody(transport, operation).first_child());
 }
 
 struct Fixture {
@@ -85,8 +83,8 @@ TEST(VimListObjectsTest, BuildsContainerViewOverRootFolderAndTraversesIt)
 {
     Fixture fixture;
     scriptEsxiSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse("<RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval>"
                     "<objects><obj type=\"VirtualMachine\">1</obj>"
                     "<propSet><name>name</name><val xsi:type=\"xsd:string\">web-01</val></propSet></objects>"
@@ -107,14 +105,14 @@ TEST(VimListObjectsTest, BuildsContainerViewOverRootFolderAndTraversesIt)
     EXPECT_EQ(objects.value()[1].get("name"), "db-01");
     EXPECT_EQ(objects.value()[1].get("missing"), "");
 
-    const auto create = sentRequestBody(fixture.transport, "urn:vim25/CreateContainerView");
+    const auto create = sentRequestBody(fixture.transport, "CreateContainerView");
     EXPECT_STREQ(create.select_node("//_this").node().text().as_string(), "ViewManager");
     EXPECT_STREQ(create.select_node("//container").node().text().as_string(), "ha-folder-root");
     EXPECT_STREQ(create.select_node("//container").node().attribute("type").as_string(), "Folder");
     EXPECT_STREQ(create.select_node("//type").node().text().as_string(), "VirtualMachine");
     EXPECT_STREQ(create.select_node("//recursive").node().text().as_string(), "true");
 
-    const auto retrieve = sentRequestBody(fixture.transport, "urn:vim25/RetrievePropertiesEx");
+    const auto retrieve = sentRequestBody(fixture.transport, "RetrievePropertiesEx");
     EXPECT_STREQ(retrieve.select_node("//objectSet/obj").node().text().as_string(), "session[1]view-1");
     EXPECT_STREQ(retrieve.select_node("//objectSet/obj").node().attribute("type").as_string(), "ContainerView");
     EXPECT_STREQ(retrieve.select_node("//objectSet/skip").node().text().as_string(), "true");
@@ -125,15 +123,15 @@ TEST(VimListObjectsTest, BuildsContainerViewOverRootFolderAndTraversesIt)
     EXPECT_STREQ(retrieve.select_node("//propSet/type").node().text().as_string(), "VirtualMachine");
     EXPECT_STREQ(retrieve.select_node("//propSet/pathSet").node().text().as_string(), "name");
 
-    EXPECT_TRUE(wasSent(fixture.transport, "urn:vim25/DestroyView"));
+    EXPECT_TRUE(wasSent(fixture.transport, "DestroyView"));
 }
 
 TEST(VimListObjectsTest, FlattensArrayValuesAndFollowsContinuationToken)
 {
     Fixture fixture;
     scriptEsxiSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse("<RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><token>page2</token>"
                     "<objects><obj type=\"Folder\">ha-folder-vm</obj>"
                     "<propSet><name>name</name><val xsi:type=\"xsd:string\">vm</val></propSet>"
@@ -141,8 +139,8 @@ TEST(VimListObjectsTest, FlattensArrayValuesAndFollowsContinuationToken)
                     "<string>Folder</string><string>VirtualMachine</string><string>VirtualApp</string>"
                     "</val></propSet></objects>"
                     "</returnval></RetrievePropertiesExResponse>"));
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/ContinueRetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "ContinueRetrievePropertiesEx",
         xmlResponse("<ContinueRetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval>"
                     "<objects><obj type=\"Folder\">ha-folder-host</obj>"
                     "<propSet><name>name</name><val xsi:type=\"xsd:string\">host</val></propSet>"
@@ -161,7 +159,7 @@ TEST(VimListObjectsTest, FlattensArrayValuesAndFollowsContinuationToken)
     EXPECT_EQ(objects.value()[1].moref.value, "ha-folder-host");
     EXPECT_EQ(objects.value()[1].get("childType"), "ComputeResource");
 
-    const auto continuation = sentRequestBody(fixture.transport, "urn:vim25/ContinueRetrievePropertiesEx");
+    const auto continuation = sentRequestBody(fixture.transport, "ContinueRetrievePropertiesEx");
     EXPECT_STREQ(continuation.select_node("//token").node().text().as_string(), "page2");
 }
 
@@ -176,21 +174,21 @@ TEST(VimListObjectsTest, DestroysViewEvenWhenRetrieveFails)
     VimInventory inventory(*session.value());
     auto objects = inventory.listObjects("Datastore", {"name"});
     EXPECT_FALSE(objects.hasValue());
-    EXPECT_TRUE(wasSent(fixture.transport, "urn:vim25/DestroyView"));
+    EXPECT_TRUE(wasSent(fixture.transport, "DestroyView"));
 }
 
 TEST(VimListObjectsTest, FailsWithoutViewManager)
 {
     Fixture fixture;
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrieveServiceContent",
+    fixture.transport.queueForOperation(
+        "RetrieveServiceContent",
         xmlResponse("<RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                     "<rootFolder type=\"Folder\">ha-folder-root</rootFolder>"
                     "<propertyCollector type=\"PropertyCollector\">ha-property-collector</propertyCollector>"
                     "<searchIndex type=\"SearchIndex\">ha-searchindex</searchIndex>"
                     "<sessionManager type=\"SessionManager\">ha-sessionmgr</sessionManager>"
                     "</returnval></RetrieveServiceContentResponse>"));
-    fixture.transport.queueForSoapAction("urn:vim25/Login",
+    fixture.transport.queueForOperation("Login",
                                          xmlResponse("<LoginResponse xmlns=\"urn:vim25\"><returnval><key>k</key>"
                                                      "</returnval></LoginResponse>"));
 
@@ -200,7 +198,7 @@ TEST(VimListObjectsTest, FailsWithoutViewManager)
     auto objects = inventory.listObjects("Network", {"name"});
     ASSERT_FALSE(objects.hasValue());
     EXPECT_EQ(objects.error().code(), VSphereSoap::ErrorCode::InvalidFormat);
-    EXPECT_FALSE(wasSent(fixture.transport, "urn:vim25/CreateContainerView"));
+    EXPECT_FALSE(wasSent(fixture.transport, "CreateContainerView"));
 }
 
 } // namespace VSphereSoap::Detail

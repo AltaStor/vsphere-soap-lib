@@ -73,7 +73,7 @@ Error leaseCall(VimSession& session, const char* operation, const MoRef& lease,
     if (percent) {
         request.document_element().append_child("percent").text() = *percent;
     }
-    auto result = session.call(std::string("urn:vim25/") + operation, request.document_element());
+    auto result = session.call(request.document_element());
     if (!result) {
         return std::move(result).error();
     }
@@ -114,7 +114,7 @@ Result<std::unique_ptr<ExportStreamReader>> ExportStreamReader::open(VimSession&
                                                                      const ExportTransportFactory& transportFactory)
 {
     pugi::xml_document request = makeVimRequest("ExportSnapshot", snapshot);
-    auto exported = session.call("urn:vim25/ExportSnapshot", request.document_element());
+    auto exported = session.call(request.document_element());
     if (!exported) {
         return std::move(exported).error();
     }

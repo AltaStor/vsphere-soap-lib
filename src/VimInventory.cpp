@@ -281,7 +281,7 @@ void resolveDistributedPortgroupDetails(VimSession& session, std::vector<VimNetw
     }
     op.append_child("options");
 
-    auto callResult = session.call("urn:vim25/RetrievePropertiesEx", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return;
     }
@@ -342,12 +342,12 @@ Error retrievePropertiesPaged(VimSession& session, const pugi::xml_node& op, OnO
     for (;;) {
         Result<pugi::xml_document> callResult = [&]() -> Result<pugi::xml_document> {
             if (firstPage) {
-                return session.call("urn:vim25/RetrievePropertiesEx", op);
+                return session.call(op);
             }
             pugi::xml_document continueRequest =
                 makeVimRequest("ContinueRetrievePropertiesEx", session.propertyCollector());
             continueRequest.document_element().append_child("token").text() = token.c_str();
-            return session.call("urn:vim25/ContinueRetrievePropertiesEx", continueRequest.document_element());
+            return session.call(continueRequest.document_element());
         }();
         firstPage = false;
 
@@ -413,7 +413,7 @@ Result<MoRef> VimInventory::findVm(const VmLocator& locator)
         op.append_child("vmSearch").text() = "true";
         op.append_child("instanceUuid").text() = "false";
 
-        auto callResult = m_session.call("urn:vim25/FindByUuid", op);
+        auto callResult = m_session.call(op);
         if (!callResult) {
             return std::move(callResult).error();
         }
@@ -429,7 +429,7 @@ Result<MoRef> VimInventory::findVm(const VmLocator& locator)
         pugi::xml_node op = request.document_element();
         op.append_child("inventoryPath").text() = locator.inventoryPath->c_str();
 
-        auto callResult = m_session.call("urn:vim25/FindByInventoryPath", op);
+        auto callResult = m_session.call(op);
         if (!callResult) {
             return std::move(callResult).error();
         }
@@ -589,7 +589,7 @@ static Result<DatacenterRef> walkToDatacenter(VimSession& session, const MoRef& 
         obj.text() = current.value.c_str();
         op.append_child("options");
 
-        auto callResult = session.call("urn:vim25/RetrievePropertiesEx", op);
+        auto callResult = session.call(op);
         if (!callResult) {
             return std::move(callResult).error();
         }
@@ -658,7 +658,7 @@ Result<std::vector<VimObjectProperties>> VimInventory::listObjects(const std::st
     createOp.append_child("type").text() = type.c_str();
     createOp.append_child("recursive").text() = "true";
 
-    auto createResult = m_session.call("urn:vim25/CreateContainerView", createOp);
+    auto createResult = m_session.call(createOp);
     if (!createResult) {
         return std::move(createResult).error();
     }
@@ -707,7 +707,7 @@ Result<std::vector<VimObjectProperties>> VimInventory::listObjects(const std::st
 
     // Best-effort, like VimSession's Logout: a leftover view goes away with the session anyway.
     const pugi::xml_document destroyRequest = makeVimRequest("DestroyView", view);
-    (void)m_session.call("urn:vim25/DestroyView", destroyRequest.document_element());
+    (void)m_session.call(destroyRequest.document_element());
 
     if (!retrieved.ok()) {
         return retrieved;

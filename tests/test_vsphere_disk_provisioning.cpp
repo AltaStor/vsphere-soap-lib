@@ -47,8 +47,8 @@ HttpResponse xmlResponse(std::string body)
 // its own, slightly richer variant rather than a shared helper neither file fully needs.
 void scriptSessionBootstrap(FakeHttpTransport& transport)
 {
-    transport.queueForSoapAction(
-        "urn:vim25/RetrieveServiceContent",
+    transport.queueForOperation(
+        "RetrieveServiceContent",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                     "<rootFolder type=\"Folder\">group-d1</rootFolder>"
@@ -58,8 +58,8 @@ void scriptSessionBootstrap(FakeHttpTransport& transport)
                     "<ovfManager type=\"OvfManager\">OvfManager</ovfManager>"
                     "<fileManager type=\"FileManager\">FileManager</fileManager>"
                     "</returnval></RetrieveServiceContentResponse></soapenv:Body></soapenv:Envelope>"));
-    transport.queueForSoapAction(
-        "urn:vim25/Login",
+    transport.queueForOperation(
+        "Login",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><LoginResponse xmlns=\"urn:vim25\"><returnval>"
                     "<key>session-key</key></returnval></LoginResponse></soapenv:Body></soapenv:Envelope>"));
@@ -70,18 +70,16 @@ struct SoapFixture {
     SoapClient soap{transport, "vcenter.example.com"};
 };
 
-// Finds the most recently recorded request for `soapAction` and parses its body as XML: mirrors
+// Finds the most recently recorded request for `operation` and parses its body as XML: mirrors
 // test_soap_client.cpp's own "re-parse transport.m_requests.back().body" pattern for asserting on
 // exactly what a caller sent, not just that a call happened.
-pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& soapAction)
+pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& operation)
 {
     pugi::xml_document doc;
     for (auto it = transport.m_requests.rbegin(); it != transport.m_requests.rend(); ++it) {
-        for (const auto& h : it->headers) {
-            if (h.name == "SOAPAction" && h.value == soapAction) {
-                doc.load_string(it->body.c_str());
-                return doc;
-            }
+        if (FakeHttpTransport::operationOf(it->body) == operation) {
+            doc.load_string(it->body.c_str());
+            return doc;
         }
     }
     return doc; // empty document if never sent
@@ -110,8 +108,8 @@ TEST(DiskProvisioningEnvelopeTest, CreateImportSpecCarriesRequestedDiskProvision
         // CreateImportSpec's response: just enough for begin() to move on to ImportVApp (which is
         // deliberately left unscripted; see this file's own header comment on why that's fine for this
         // test).
-        fixture.transport.queueForSoapAction(
-            "urn:vim25/CreateImportSpec",
+        fixture.transport.queueForOperation(
+            "CreateImportSpec",
             xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                         "<soapenv:Body><CreateImportSpecResponse xmlns=\"urn:vim25\"><returnval>"
                         "<importSpec xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
@@ -133,7 +131,7 @@ TEST(DiskProvisioningEnvelopeTest, CreateImportSpecCarriesRequestedDiskProvision
         // (the call under test) already ran.
         ASSERT_FALSE(result.hasValue());
 
-        const pugi::xml_document sent = sentRequestBody(fixture.transport, "urn:vim25/CreateImportSpec");
+        const pugi::xml_document sent = sentRequestBody(fixture.transport, "CreateImportSpec");
         const pugi::xml_node cisp = sent.select_node("//cisp").node();
         ASSERT_TRUE(cisp) << "CreateImportSpec request had no <cisp> element";
 
@@ -184,8 +182,8 @@ TEST(DiskProvisioningEnvelopeTest, ReconfigAddDiskReportsThinAndEagerlyScrubMatc
         // describeVm's RetrievePropertiesEx: one existing ParaVirtualSCSI controller, no disks yet, so
         // chooseControllerAndUnit resolves it as the auto-picked primary without needing
         // a controller-create sub-call.
-        fixture.transport.queueForSoapAction(
-            "urn:vim25/RetrievePropertiesEx",
+        fixture.transport.queueForOperation(
+            "RetrievePropertiesEx",
             xmlResponse(
                 "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                 "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
@@ -204,30 +202,30 @@ TEST(DiskProvisioningEnvelopeTest, ReconfigAddDiskReportsThinAndEagerlyScrubMatc
             // Two hops: [1] query vm-1 itself, returning its parent (dc-1, type Datacenter); [2] query
             // dc-1 itself, whose type being "Datacenter" is what ends the walk.
             //
-            fixture.transport.queueForSoapAction(
-                "urn:vim25/RetrievePropertiesEx",
+            fixture.transport.queueForOperation(
+                "RetrievePropertiesEx",
                 xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                             "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
                             "<obj type=\"VirtualMachine\">vm-1</obj>"
                             "<propSet><name>name</name><val>myvm</val></propSet>"
                             "<propSet><name>parent</name><val type=\"Datacenter\">dc-1</val></propSet>"
                             "</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>"));
-            fixture.transport.queueForSoapAction(
-                "urn:vim25/RetrievePropertiesEx",
+            fixture.transport.queueForOperation(
+                "RetrievePropertiesEx",
                 xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                             "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
                             "<obj type=\"Datacenter\">dc-1</obj>"
                             "<propSet><name>name</name><val>dc1</val></propSet>"
                             "</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>"));
-            fixture.transport.queueForSoapAction(
-                "urn:vim25/EagerZeroVirtualDisk_Task",
+            fixture.transport.queueForOperation(
+                "EagerZeroVirtualDisk_Task",
                 xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                             "<soapenv:Body><EagerZeroVirtualDisk_TaskResponse xmlns=\"urn:vim25\">"
                             "<returnval type=\"Task\">task-1</returnval>"
                             "</EagerZeroVirtualDisk_TaskResponse></soapenv:Body></soapenv:Envelope>"));
             // waitForVimTask's own RetrievePropertiesEx poll on task-1.
-            fixture.transport.queueForSoapAction(
-                "urn:vim25/RetrievePropertiesEx",
+            fixture.transport.queueForOperation(
+                "RetrievePropertiesEx",
                 xmlResponse(
                     "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
@@ -246,7 +244,7 @@ TEST(DiskProvisioningEnvelopeTest, ReconfigAddDiskReportsThinAndEagerlyScrubMatc
                                        4ull * 1024 * 1024, selector, c.diskProvisioning);
         ASSERT_FALSE(result.hasValue()); // expected: ReconfigVM_Task itself was never scripted
 
-        const pugi::xml_document sent = sentRequestBody(fixture.transport, "urn:vim25/ReconfigVM_Task");
+        const pugi::xml_document sent = sentRequestBody(fixture.transport, "ReconfigVM_Task");
         const pugi::xml_node backing = sent.select_node("//device/backing").node();
         ASSERT_TRUE(backing) << "ReconfigVM_Task request had no <device><backing> element";
 

@@ -221,7 +221,7 @@ Result<MoRef> reconfigVm(VimSession& session, const MoRef& vm, const char* opera
     device.append_attribute("xsi:type") = "VirtualDisk";
     buildDevice(device);
 
-    auto callResult = session.call("urn:vim25/ReconfigVM_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -353,7 +353,7 @@ Result<int> reconfigAddController(VimSession& session, VimInventory& inventory, 
         device.append_child("sharedBus").text() = "noSharing";
     }
 
-    auto callResult = session.call("urn:vim25/ReconfigVM_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -401,7 +401,7 @@ Error moveDatastoreFile(VimSession& session, const std::string& sourceName, cons
     }
     op.append_child("force").text() = "false";
 
-    auto callResult = session.call("urn:vim25/MoveDatastoreFile_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -441,7 +441,7 @@ Error moveVirtualDisk(VimSession& session, const std::string& sourceName, const 
     }
     op.append_child("force").text() = "false";
 
-    auto callResult = session.call("urn:vim25/MoveVirtualDisk_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -525,7 +525,7 @@ Error deleteDatastoreFile(VimSession& session, const std::string& name, const Mo
         node.text() = datacenter.value.c_str();
     }
 
-    auto callResult = session.call("urn:vim25/DeleteDatastoreFile_Task", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -553,7 +553,7 @@ Error makeDatastoreDirectory(VimSession& session, const std::string& name, const
     }
     op.append_child("createParentDirectories").text() = "true";
 
-    auto callResult = session.call("urn:vim25/MakeDirectory", op);
+    auto callResult = session.call(op);
     if (!callResult) {
         return std::move(callResult).error();
     }
@@ -588,7 +588,7 @@ Error eagerZeroVirtualDisk(VimSession& session, const std::string& name, const M
         }
 
         Error outcome = [&]() -> Error {
-            auto callResult = session.call("urn:vim25/EagerZeroVirtualDisk_Task", op);
+            auto callResult = session.call(op);
             if (!callResult) {
                 return std::move(callResult).error();
             }
@@ -623,7 +623,7 @@ Error unregisterVm(VimSession& session, const MoRef& vm)
     const pugi::xml_document request = makeVimRequest("UnregisterVM", vm);
 
     // UnregisterVM is a plain (non-Task) operation; it either faults or returns synchronously, no task to poll.
-    auto callResult = session.call("urn:vim25/UnregisterVM", request.document_element());
+    auto callResult = session.call(request.document_element());
     if (!callResult) {
         return std::move(callResult).error();
     }

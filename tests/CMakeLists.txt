@@ -25,6 +25,7 @@ include(GoogleTest)
 
 add_executable(vsphere_soap_tests
     test_soap_client.cpp
+    test_vim_session.cpp
     test_datastore_path.cpp
     test_cbt_extents.cpp
     test_vmdk_encoder.cpp

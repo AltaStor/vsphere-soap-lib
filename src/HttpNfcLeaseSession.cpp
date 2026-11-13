@@ -254,7 +254,7 @@ HttpNfcLeaseSession::~HttpNfcLeaseSession()
     if (!m_completed && !m_lease.empty()) {
         try {
             pugi::xml_document request = makeVimRequest("HttpNfcLeaseAbort", m_lease);
-            (void)m_session.call("urn:vim25/HttpNfcLeaseAbort", request.document_element());
+            (void)m_session.call(request.document_element());
         } catch (...) {
             // Never propagate out of a destructor: matches SnapshotScope.
         }
@@ -277,7 +277,7 @@ void HttpNfcLeaseSession::startKeepAlive(std::function<int()> percentComplete, s
             // a missed heartbeat elsewhere in this codebase just waits for the next one rather than
             // escalating on the first miss.
             //
-            if (auto result = m_session.call("urn:vim25/HttpNfcLeaseProgress", request.document_element()); !result) {
+            if (auto result = m_session.call(request.document_element()); !result) {
                 logger()->debug("HttpNfcLeaseProgress failed (will retry next tick): {}", result.error().toString());
             }
             for (int waited = 0; waited < interval.count() && m_keepAliveRunning.load(); ++waited) {
@@ -302,7 +302,7 @@ Error HttpNfcLeaseSession::complete()
     }
     stopKeepAlive();
     pugi::xml_document request = makeVimRequest("HttpNfcLeaseComplete", m_lease);
-    auto result = m_session.call("urn:vim25/HttpNfcLeaseComplete", request.document_element());
+    auto result = m_session.call(request.document_element());
     if (!result) {
         return std::move(result).error();
     }
@@ -349,7 +349,7 @@ Result<pugi::xml_node> waitForLeaseReady(VimSession& session, const MoRef& lease
         obj.text() = lease.value.c_str();
         op.append_child("options");
 
-        auto callResult = session.call("urn:vim25/RetrievePropertiesEx", op);
+        auto callResult = session.call(op);
         if (!callResult) {
             return std::move(callResult).error();
         }
@@ -499,7 +499,7 @@ Result<pugi::xml_document> createImportSpec(VimSession& session, const ImportVmS
             cisp.append_child("diskProvisioning").text() = spec.diskProvisioning.c_str();
         }
     }
-    auto cisResult = session.call("urn:vim25/CreateImportSpec", cisRequest.document_element());
+    auto cisResult = session.call(cisRequest.document_element());
     if (!cisResult) {
         return std::move(cisResult).error();
     }
@@ -572,7 +572,7 @@ Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSessi
             hostNode.text() = spec.host.value.c_str();
         }
     }
-    auto importResult = session.call("urn:vim25/ImportVApp", importRequest.document_element());
+    auto importResult = session.call(importRequest.document_element());
     if (!importResult) {
         return std::move(importResult).error();
     }
@@ -586,7 +586,7 @@ Result<std::unique_ptr<HttpNfcLeaseSession>> HttpNfcLeaseSession::begin(VimSessi
     // repeating it at each call site.
     auto fail = [&](Error err) -> Result<std::unique_ptr<HttpNfcLeaseSession>> {
         pugi::xml_document abortRequest = makeVimRequest("HttpNfcLeaseAbort", lease);
-        (void)session.call("urn:vim25/HttpNfcLeaseAbort", abortRequest.document_element());
+        (void)session.call(abortRequest.document_element());
         return err;
     };
 

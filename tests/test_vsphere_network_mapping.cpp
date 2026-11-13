@@ -37,8 +37,8 @@ HttpResponse xmlResponse(std::string body)
 // Same handshake as test_vsphere_disk_provisioning.cpp's own scriptSessionBootstrap.
 void scriptSessionBootstrap(FakeHttpTransport& transport)
 {
-    transport.queueForSoapAction(
-        "urn:vim25/RetrieveServiceContent",
+    transport.queueForOperation(
+        "RetrieveServiceContent",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><RetrieveServiceContentResponse xmlns=\"urn:vim25\"><returnval>"
                     "<rootFolder type=\"Folder\">group-d1</rootFolder>"
@@ -48,8 +48,8 @@ void scriptSessionBootstrap(FakeHttpTransport& transport)
                     "<ovfManager type=\"OvfManager\">OvfManager</ovfManager>"
                     "<fileManager type=\"FileManager\">FileManager</fileManager>"
                     "</returnval></RetrieveServiceContentResponse></soapenv:Body></soapenv:Envelope>"));
-    transport.queueForSoapAction(
-        "urn:vim25/Login",
+    transport.queueForOperation(
+        "Login",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><LoginResponse xmlns=\"urn:vim25\"><returnval>"
                     "<key>session-key</key></returnval></LoginResponse></soapenv:Body></soapenv:Envelope>"));
@@ -60,15 +60,13 @@ struct SoapFixture {
     SoapClient soap{transport, "vcenter.example.com"};
 };
 
-pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& soapAction)
+pugi::xml_document sentRequestBody(const FakeHttpTransport& transport, const std::string& operation)
 {
     pugi::xml_document doc;
     for (auto it = transport.m_requests.rbegin(); it != transport.m_requests.rend(); ++it) {
-        for (const auto& h : it->headers) {
-            if (h.name == "SOAPAction" && h.value == soapAction) {
-                doc.load_string(it->body.c_str());
-                return doc;
-            }
+        if (FakeHttpTransport::operationOf(it->body) == operation) {
+            doc.load_string(it->body.c_str());
+            return doc;
         }
     }
     return doc;
@@ -86,8 +84,8 @@ struct BeginResult {
 BeginResult runBegin(SoapFixture& fixture, const ImportVmSpec& spec)
 {
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/CreateImportSpec",
+    fixture.transport.queueForOperation(
+        "CreateImportSpec",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><CreateImportSpecResponse xmlns=\"urn:vim25\"><returnval>"
                     "<importSpec xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
@@ -102,7 +100,7 @@ BeginResult runBegin(SoapFixture& fixture, const ImportVmSpec& spec)
     EXPECT_FALSE(result.hasValue()); // ImportVApp was never scripted, as expected.
 
     BeginResult out;
-    out.cispDoc = sentRequestBody(fixture.transport, "urn:vim25/CreateImportSpec");
+    out.cispDoc = sentRequestBody(fixture.transport, "CreateImportSpec");
     out.cisp = out.cispDoc.select_node("//cisp").node();
 
     const pugi::xml_node ovfDescriptorNode = out.cispDoc.select_node("//ovfDescriptor").node();
@@ -462,8 +460,8 @@ TEST(NetworkMappingEnvelopeTest, DescribeVmParsesStandardPortgroupNetworkAdapter
 {
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse(
             "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
             "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
@@ -499,8 +497,8 @@ TEST(NetworkMappingEnvelopeTest, DescribeVmResolvesDistributedPortgroupNameAndVl
 {
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse(
             "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
             "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
@@ -516,8 +514,8 @@ TEST(NetworkMappingEnvelopeTest, DescribeVmResolvesDistributedPortgroupNameAndVl
             "</val></propSet>"
             "</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>"));
     // The follow-up batched RetrievePropertiesEx on the DistributedVirtualPortgroup itself.
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/RetrievePropertiesEx",
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
                     "<obj type=\"DistributedVirtualPortgroup\">dvportgroup-100</obj>"
@@ -553,12 +551,10 @@ TEST(NetworkMappingEnvelopeTest, NoNetworkAdaptersProducesNoNetworkSectionAndNoE
     EXPECT_FALSE(result.ovfDoc.select_node("//Item[rasd:ResourceType='10']").node());
 }
 
-bool sentSoapAction(const FakeHttpTransport& transport, const std::string& soapAction)
+bool sentOperation(const FakeHttpTransport& transport, const std::string& operation)
 {
     for (const auto& request : transport.m_requests) {
-        for (const auto& h : request.headers) {
-            if (h.name == "SOAPAction" && h.value == soapAction) return true;
-        }
+        if (FakeHttpTransport::operationOf(request.body) == operation) return true;
     }
     return false;
 }
@@ -569,8 +565,8 @@ TEST(NetworkMappingEnvelopeTest, ValidateReportsCreateImportSpecErrorWithoutImpo
 {
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/CreateImportSpec",
+    fixture.transport.queueForOperation(
+        "CreateImportSpec",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><CreateImportSpecResponse xmlns=\"urn:vim25\"><returnval>"
                     "<error><localizedMessage>Line 1: Unsupported element 'Item'</localizedMessage></error>"
@@ -588,16 +584,16 @@ TEST(NetworkMappingEnvelopeTest, ValidateReportsCreateImportSpecErrorWithoutImpo
     EXPECT_NE(validated.toString().find("CreateImportSpec reported an error: Line 1: Unsupported element 'Item'"),
               std::string::npos)
         << validated.toString();
-    EXPECT_TRUE(sentSoapAction(fixture.transport, "urn:vim25/CreateImportSpec"));
-    EXPECT_FALSE(sentSoapAction(fixture.transport, "urn:vim25/ImportVApp"));
+    EXPECT_TRUE(sentOperation(fixture.transport, "CreateImportSpec"));
+    EXPECT_FALSE(sentOperation(fixture.transport, "ImportVApp"));
 }
 
 TEST(NetworkMappingEnvelopeTest, ValidateAcceptsASpecTheTargetAccepts)
 {
     SoapFixture fixture;
     scriptSessionBootstrap(fixture.transport);
-    fixture.transport.queueForSoapAction(
-        "urn:vim25/CreateImportSpec",
+    fixture.transport.queueForOperation(
+        "CreateImportSpec",
         xmlResponse("<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
                     "<soapenv:Body><CreateImportSpecResponse xmlns=\"urn:vim25\"><returnval>"
                     "<importSpec xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
@@ -611,7 +607,7 @@ TEST(NetworkMappingEnvelopeTest, ValidateAcceptsASpecTheTargetAccepts)
     auto session = VimSession::open(fixture.soap, "user", "pass");
     ASSERT_TRUE(session.hasValue());
     EXPECT_TRUE(HttpNfcLeaseSession::validate(*session.value(), spec).ok());
-    EXPECT_FALSE(sentSoapAction(fixture.transport, "urn:vim25/ImportVApp"));
+    EXPECT_FALSE(sentOperation(fixture.transport, "ImportVApp"));
 }
 
 } // namespace VSphereSoap::Detail
