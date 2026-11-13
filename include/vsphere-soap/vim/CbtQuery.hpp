@@ -9,6 +9,9 @@
 // unallocated zero regions) or its changed-block map relative to a real baseline changeId.
 // Checks CBT eligibility up front (change tracking on, hardware version, RDM) so unavailability is
 // reported clearly rather than discovered as an opaque fault or silently downgraded to a full read.
+//
+// Public so that a tool reading the disk some other way, e.g. through the VDDK, can still take the disk's
+// changed areas from vSphere, over a VimSession of its own.
 
 #include <cstdint>
 #include <string>
@@ -19,9 +22,7 @@
 #include "vsphere-soap/vim/VimTypes.hpp"
 #include "vsphere-soap/Result.hpp"
 
-namespace VSphereSoap::Detail {
-
-using namespace VSphereSoap::Vim;
+namespace VSphereSoap::Vim {
 
 using VSphereSoap::Result;
 
@@ -36,6 +37,7 @@ std::vector<Extent> mergeExtents(std::vector<Extent> extents);
 
 class CbtQuery {
 public:
+    /// `session` must outlive this object.
     explicit CbtQuery(VimSession& session);
 
     /// Fails with `ErrorCode::NotImplemented` (message says which condition) if
@@ -47,11 +49,16 @@ public:
     Error checkEligible(const VimVmInfo& vmInfo, const VimDiskInfo& disk) const;
 
     /// `changeId="*"`: the disk's full allocated-block map.
+    ///
+    /// `snapshot` is the disk's state the map is taken at. Empty asks about the VM's current state, which
+    /// vSphere answers only for a powered-off VM; a running one fails with the server's fault.
+    ///
     Result<std::vector<Extent>> queryAllocatedExtents(const MoRef& vm, const MoRef& snapshot,
                                                                         const std::string& deviceKey,
                                                                         std::uint64_t diskCapacityBytes);
 
     /// A real `changeId`: the disk's changed-block map relative to that baseline.
+    /// `snapshot` as for `queryAllocatedExtents`.
     Result<std::vector<Extent>> queryChangedExtents(const MoRef& vm, const MoRef& snapshot,
                                                                       const std::string& deviceKey,
                                                                       const std::string& changeId,
@@ -71,4 +78,4 @@ private:
     VimSession& m_session;
 };
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

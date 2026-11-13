@@ -3,13 +3,13 @@
 //
 // vSphere changed block tracking (CBT) query
 
-#include "CbtQuery.hpp"
+#include "vsphere-soap/vim/CbtQuery.hpp"
 
 #include <algorithm>
 
 #include "vsphere-soap/Error.hpp"
 
-namespace VSphereSoap::Detail {
+namespace VSphereSoap::Vim {
 
 using VSphereSoap::Error;
 using VSphereSoap::ErrorCode;
@@ -90,9 +90,12 @@ Result<std::vector<Extent>> CbtQuery::queryLoop(const MoRef& vm, const MoRef& sn
     while (offset < diskCapacityBytes) {
         pugi::xml_document request = makeVimRequest("QueryChangedDiskAreas", vm);
         pugi::xml_node op = request.document_element();
-        pugi::xml_node snapshotNode = op.append_child("snapshot");
-        snapshotNode.append_attribute("type") = snapshot.type.c_str();
-        snapshotNode.text() = snapshot.value.c_str();
+        // Optional in the API: without it vSphere answers for the VM's current state.
+        if (!snapshot.empty()) {
+            pugi::xml_node snapshotNode = op.append_child("snapshot");
+            snapshotNode.append_attribute("type") = snapshot.type.c_str();
+            snapshotNode.text() = snapshot.value.c_str();
+        }
         op.append_child("deviceKey").text() = deviceKey.c_str();
         op.append_child("startOffset").text() = std::to_string(offset).c_str();
         op.append_child("changeId").text() = changeId.c_str();
@@ -132,4 +135,4 @@ Result<std::vector<Extent>> CbtQuery::queryLoop(const MoRef& vm, const MoRef& sn
     return extents;
 }
 
-} // namespace VSphereSoap::Detail
+} // namespace VSphereSoap::Vim

@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "CbtQuery.hpp"
+#include "vsphere-soap/vim/CbtQuery.hpp"
 #include "vsphere-soap/vim/VimInventory.hpp"
 #include "vsphere-soap/vim/SoapClient.hpp"
 #include "vsphere-soap/vim/VimSession.hpp"
@@ -199,6 +199,33 @@ TEST(CbtQueryLoopTest, LoopsUntilDiskCapacityIsCoveredAndPreservesExtentOrder)
         EXPECT_EQ(result.value()[i].start, expected[i].start) << "extent " << i;
         EXPECT_EQ(result.value()[i].length, expected[i].length) << "extent " << i;
     }
+
+    // Every page is asked at the snapshot it was given.
+    EXPECT_NE(fixture.transport.m_requests.back().body.find("snapshot-1"), std::string::npos);
+}
+
+TEST(CbtQueryLoopTest, LeavesTheSnapshotOutWhenThereIsNone)
+{
+    SoapFixture fixture;
+    scriptSessionBootstrap(fixture.transport);
+    fixture.transport.queueForSoapAction(
+        "urn:vim25/QueryChangedDiskAreas",
+        xmlResponse(queryChangedDiskAreasResponse(0, 10'000'000, {{4096, 8192}})));
+
+    auto session = VimSession::open(fixture.soap, "user", "pass");
+    ASSERT_TRUE(session.hasValue());
+
+    CbtQuery cbt(*session.value());
+    auto result = cbt.queryChangedExtents(MoRef{"VirtualMachine", "vm-1"}, MoRef{}, "2000", "52 aa/7", 10'000'000);
+    ASSERT_TRUE(result.hasValue());
+    ASSERT_EQ(result.value().size(), 1u);
+    EXPECT_EQ(result.value()[0].start, 4096u);
+    EXPECT_EQ(result.value()[0].length, 8192u);
+
+    // vSphere refuses an empty <snapshot>, so a query of the VM's current state has to send none at all.
+    const std::string& body = fixture.transport.m_requests.back().body;
+    EXPECT_NE(body.find("<changeId>52 aa/7</changeId>"), std::string::npos);
+    EXPECT_EQ(body.find("snapshot"), std::string::npos);
 }
 
 TEST(CbtQueryLoopTest, FailsRatherThanLoopingForeverOnNoProgress)

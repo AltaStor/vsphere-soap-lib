@@ -12,7 +12,7 @@
 #include <thread>
 #include <utility>
 
-#include "CbtQuery.hpp"
+#include "vsphere-soap/vim/CbtQuery.hpp"
 #include "DatastorePath.hpp"
 #include "ExportStreamReader.hpp"
 #include "vsphere-soap/vim/HttpTransportAdapter.hpp"
@@ -202,7 +202,7 @@ public:
     std::string m_getPath;
     std::string m_getQuery;
     std::uint64_t m_virtualSizeBytes = 0;
-    std::vector<Detail::Extent> m_allocatedExtents; // sorted by start; only meaningful when cbtActive_
+    std::vector<Vim::Extent> m_allocatedExtents; // sorted by start; only meaningful when cbtActive_
     std::vector<DiskExtent> m_dataExtents;
     std::string m_changeId;
     bool m_cbtActive = false;
@@ -240,11 +240,11 @@ std::string controllerSlot(const Vim::VimVmInfo& vm, const Vim::VimDiskInfo& dis
     return {};
 }
 
-std::vector<DiskExtent> toDiskExtents(const std::vector<Detail::Extent>& extents)
+std::vector<DiskExtent> toDiskExtents(const std::vector<Vim::Extent>& extents)
 {
     std::vector<DiskExtent> out;
     out.reserve(extents.size());
-    for (const auto& extent : Detail::mergeExtents(extents)) {
+    for (const auto& extent : Vim::mergeExtents(extents)) {
         out.push_back(DiskExtent{extent.start, extent.length});
     }
     return out;
@@ -352,7 +352,7 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
     const bool exported = !params.snapshotMoref.empty() || vmInfo.powerState == Vim::VimPowerState::PoweredOn ||
                           !impl->m_disk.parents.empty();
 
-    Detail::CbtQuery cbt(*impl->m_session);
+    Vim::CbtQuery cbt(*impl->m_session);
     const Error eligible = params.useCbt ? cbt.checkEligible(vmInfo, impl->m_disk)
                                          : Error(ErrorCode::NotImplemented, "CBT was not requested");
     if (!params.cbtChangeId.empty() && !eligible.ok()) {
@@ -408,7 +408,7 @@ Result<std::unique_ptr<VmwareSoapDisk>> VmwareSoapDisk::open(const ConnectParams
             }
             impl->m_cbtUnavailableReason = "failed to query allocated extents: " + allocated.error().message();
         } else {
-            impl->m_allocatedExtents = Detail::mergeExtents(std::move(allocated).value());
+            impl->m_allocatedExtents = Vim::mergeExtents(std::move(allocated).value());
             impl->m_cbtActive = true;
         }
     }
@@ -549,7 +549,7 @@ Result<bool> VmwareSoapDisk::isZero(std::uint64_t offset, std::uint64_t length)
 
     const std::uint64_t rangeEnd = offset + length;
     const auto it = std::lower_bound(m_impl->m_allocatedExtents.begin(), m_impl->m_allocatedExtents.end(), offset,
-                                      [](const Detail::Extent& extent, std::uint64_t value) {
+                                      [](const Vim::Extent& extent, std::uint64_t value) {
                                           return extent.start + extent.length <= value;
                                       });
     if (it != m_impl->m_allocatedExtents.end() && it->start < rangeEnd) {

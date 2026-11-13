@@ -252,9 +252,10 @@ include/vsphere-soap/  VmwareSoapDisk.hpp            export; ConnectParams, VmLo
                        VSphereVmNetworkInfo.hpp      one-shot VM queries and actions
                        Result.hpp, Error.hpp, Log.hpp
   vim/                 SoapClient, VimSession, VimInventory, VimTypes     the SOAP client and VIM session
+                       CbtQuery                      changed and allocated areas of a disk (CBT)
                        HttpsRestClient, HttpTransportAdapter, IHttpTransport   HTTPS over Boost.Beast
   disk/                IDisk.hpp, DiskAdapter.hpp    the optional vsphere-soap-disk target
-src/                   SnapshotScope, CbtQuery, TaskWait                  snapshots, CBT, task polling
+src/                   SnapshotScope, TaskWait                            snapshots, task polling
                        HttpNfcLeaseSession, DiskAttach                    lease lifecycle, disk move and attach
                        StreamOptimizedVmdkEncoder, GrainAssembler         the VMDK stream
                        StreamOptimizedVmdkDecoder, ExportStreamReader     reading a snapshot's export
