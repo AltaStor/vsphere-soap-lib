@@ -24,6 +24,10 @@ using VSphereSoap::ErrorCode;
 
 namespace {
 
+// How a user asks for a missing controller to be created: `ControllerSelector::createIfMissing` is set
+// from the CLI's `--target-controller-create`, so that option is what the error advice names.
+const std::string kCreateControllerHint = " (pass --target-controller-create to add one)";
+
 // Short CLI-facing controller names <-> the VIM xsi:type each one actually instantiates.
 // "sata" maps to VirtualAHCIController, not VirtualSATAController: the latter has no concrete device
 // class in the real API (VimInventory::isControllerDeviceType still recognizes both spellings when
@@ -126,7 +130,7 @@ Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const 
             return Error(ErrorCode::InvalidArgument,
                          "target VM has no controller at bus " + std::to_string(*selector.busNumber) +
                              (selector.controllerType.empty() ? "" : (" of type " + selector.controllerType)) +
-                             " (set createIfMissing to add one)");
+                             kCreateControllerHint);
         }
         const std::string createType = wantedXsiType.empty() ? "ParaVirtualSCSIController" : wantedXsiType;
         return ControllerChoice{0, 0, std::make_pair(createType, *selector.busNumber)};
@@ -151,7 +155,7 @@ Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const 
         }
         if (!selector.createIfMissing) {
             return Error(ErrorCode::InvalidArgument, "target VM has no " + selector.controllerType +
-                                                           " controller (set createIfMissing to add one)");
+                                                           " controller" + kCreateControllerHint);
         }
         return ControllerChoice{0, 0, std::make_pair(wantedXsiType, 0)};
     }
@@ -165,7 +169,7 @@ Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const 
     if (target.controllers.empty()) {
         if (!selector.createIfMissing) {
             return Error(ErrorCode::InvalidArgument,
-                         "target VM has no disk controller at all (set createIfMissing to add one)");
+                         "target VM has no disk controller at all" + kCreateControllerHint);
         }
         return ControllerChoice{0, 0, std::make_pair(std::string("ParaVirtualSCSIController"), 0)};
     }

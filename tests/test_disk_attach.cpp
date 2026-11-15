@@ -183,3 +183,37 @@ TEST(ChooseControllerAndUnitTest, FailsWhenTheOnlyMatchingControllerHasNoFreeUni
     auto result = chooseControllerAndUnit(target, selector);
     EXPECT_FALSE(result);
 }
+
+// The advice in each "no such controller" error names the CLI option that sets createIfMissing,
+// --target-controller-create, not the struct field.
+TEST(ChooseControllerAndUnitTest, MissingControllerErrorsNameTheCliCreateOption)
+{
+    constexpr const char* kHint = "(pass --target-controller-create to add one)";
+
+    VimVmInfo target; // the STR's VM: LSI Logic SAS on SCSI 0 and a SATA controller, no paravirtual
+    target.controllers = {makeController(1000, "VirtualLsiLogicSASController", 0),
+                          makeController(1001, "VirtualAHCIController", 0)};
+
+    ControllerSelector onBus;
+    onBus.controllerType = "paravirtual";
+    onBus.busNumber = 1;
+    auto busResult = chooseControllerAndUnit(target, onBus);
+    ASSERT_FALSE(busResult);
+    EXPECT_EQ(busResult.error().message(),
+              std::string("target VM has no controller at bus 1 of type paravirtual ") + kHint);
+
+    ControllerSelector ofType;
+    ofType.controllerType = "paravirtual";
+    auto typeResult = chooseControllerAndUnit(target, ofType);
+    ASSERT_FALSE(typeResult);
+    EXPECT_EQ(typeResult.error().message(), std::string("target VM has no paravirtual controller ") + kHint);
+
+    auto noneResult = chooseControllerAndUnit(VimVmInfo{}, ControllerSelector{});
+    ASSERT_FALSE(noneResult);
+    EXPECT_EQ(noneResult.error().message(), std::string("target VM has no disk controller at all ") + kHint);
+
+    for (const std::string& message :
+         {busResult.error().message(), typeResult.error().message(), noneResult.error().message()}) {
+        EXPECT_EQ(message.find("createIfMissing"), std::string::npos) << message;
+    }
+}
