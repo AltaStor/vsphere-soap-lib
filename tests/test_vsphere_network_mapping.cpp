@@ -493,6 +493,45 @@ TEST(NetworkMappingEnvelopeTest, DescribeVmParsesStandardPortgroupNetworkAdapter
     EXPECT_FALSE(adapter.vlanId.has_value()) << "standard-portgroup VLAN resolution is not implemented";
 }
 
+// V2V-68: a CD/DVD drive occupies its controller unit just as a disk does, so a disk must not be put there.
+TEST(NetworkMappingEnvelopeTest, DescribeVmCountsCdromDrivesAsUsedControllerUnits)
+{
+    SoapFixture fixture;
+    scriptSessionBootstrap(fixture.transport);
+    fixture.transport.queueForOperation(
+        "RetrievePropertiesEx",
+        xmlResponse(
+            "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+            "<soapenv:Body><RetrievePropertiesExResponse xmlns=\"urn:vim25\"><returnval><objects>"
+            "<obj type=\"VirtualMachine\">vm-1</obj>"
+            "<propSet><name>config.hardware.device</name><val xsi:type=\"ArrayOfVirtualDevice\" "
+            "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
+            "<VirtualDevice xsi:type=\"VirtualIDEController\"><key>200</key><busNumber>0</busNumber>"
+            "<device>3002</device></VirtualDevice>"
+            "<VirtualDevice xsi:type=\"VirtualAHCIController\"><key>15000</key><busNumber>0</busNumber>"
+            "<device>16000</device></VirtualDevice>"
+            "<VirtualDevice xsi:type=\"VirtualLsiLogicSASController\"><key>1000</key><busNumber>0</busNumber>"
+            "</VirtualDevice>"
+            "<VirtualDevice xsi:type=\"VirtualCdrom\"><key>3002</key><controllerKey>200</controllerKey>"
+            "<unitNumber>0</unitNumber></VirtualDevice>"
+            "<VirtualDevice xsi:type=\"VirtualCdrom\"><key>16000</key><controllerKey>15000</controllerKey>"
+            "<unitNumber>0</unitNumber></VirtualDevice>"
+            "</val></propSet>"
+            "</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>"));
+
+    auto session = VimSession::open(fixture.soap, "user", "pass");
+    ASSERT_TRUE(session.hasValue());
+    VimInventory inventory(*session.value());
+    auto info = inventory.describeVm(MoRef{"VirtualMachine", "vm-1"});
+    ASSERT_TRUE(info.hasValue());
+    EXPECT_TRUE(info.value().disks.empty());
+    ASSERT_EQ(info.value().controllers.size(), 3u);
+    for (const auto& controller : info.value().controllers) {
+        const std::vector<int> expected = controller.key == 1000 ? std::vector<int>{} : std::vector<int>{0};
+        EXPECT_EQ(controller.usedUnitNumbers, expected) << controller.deviceType;
+    }
+}
+
 TEST(NetworkMappingEnvelopeTest, DescribeVmResolvesDistributedPortgroupNameAndVlanViaFollowUpCall)
 {
     SoapFixture fixture;

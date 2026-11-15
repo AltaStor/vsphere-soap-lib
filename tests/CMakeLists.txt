@@ -33,6 +33,7 @@ add_executable(vsphere_soap_tests
     test_export_stream.cpp
     test_grain_assembler.cpp
     test_disk_attach.cpp
+    test_disk_attach_units.cpp
     test_vim_list_objects.cpp
     test_vim_secure_boot.cpp
     test_vsphere_network_mapping.cpp

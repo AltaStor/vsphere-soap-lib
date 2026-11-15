@@ -194,6 +194,38 @@ Error Detail::eagerZeroAllDisks(Detail::ClientConnection& connection, const Deta
     return {};
 }
 
+Error Detail::checkAttachPoint(Detail::ClientConnection& connection, const Detail::PublicVmLocator& targetVm,
+                              const VSphereAttachControllerSpec& controller)
+{
+    if (Error invalid = Detail::checkVmLocator(targetVm, "VmLocator"); !invalid.ok()) {
+        return invalid;
+    }
+
+    auto open = connection.get();
+    if (!open) {
+        return std::move(open).error();
+    }
+    Vim::VimInventory inventory(*open.value()->session);
+    auto vmMoref = Detail::findVm(inventory, targetVm);
+    if (!vmMoref) {
+        return std::move(vmMoref).error();
+    }
+    auto vmInfo = inventory.describeVm(vmMoref.value());
+    if (!vmInfo) {
+        return std::move(vmInfo).error();
+    }
+
+    Detail::ControllerSelector selector;
+    selector.controllerType = controller.controllerType;
+    selector.busNumber = controller.busNumber;
+    selector.createIfMissing = controller.createIfMissing;
+    auto choice = Detail::chooseControllerAndUnit(vmInfo.value(), selector);
+    if (!choice) {
+        return std::move(choice).error();
+    }
+    return {};
+}
+
 // One-shot wrappers: one login per call. See VSphereClient for running several operations on one login.
 
 Result<VSphereAttachResult> attachImportedDisk(const ConnectParams& params, const VSphereAttachSpec& spec)
@@ -213,6 +245,13 @@ Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string&
 {
     Detail::ClientConnection connection(params);
     return Detail::datastoreDiskExists(connection, datastorePath);
+}
+
+Error checkAttachPoint(const ConnectParams& params, const VmLocator& targetVm,
+                       const VSphereAttachControllerSpec& controller)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::checkAttachPoint(connection, targetVm, controller);
 }
 
 Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)

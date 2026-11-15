@@ -85,6 +85,8 @@ public:
     Result<bool> datastoreDiskExists(const std::string& datastorePath);
     /// See the free function of the same name in VSphereDiskImport.hpp.
     Error eagerZeroAllDisks(const VmLocator& vm);
+    /// See the free function of the same name in VSphereDiskImport.hpp.
+    Error checkAttachPoint(const VmLocator& targetVm, const VSphereAttachControllerSpec& controller);
 
     /// See the free function of the same name in VSphereFolderPutImport.hpp.
     /// The result's `sessionCookie` is this client's session, and its `keepAlive` shares it: the cookie

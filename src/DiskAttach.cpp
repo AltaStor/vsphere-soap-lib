@@ -179,25 +179,29 @@ Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const 
         ++diskCountByControllerKey[disk.controllerKey];
     }
 
+    // Only controllers with a free unit qualify: a controller filled by CD/DVD drives (e.g. IDE 0 with
+    // drives at 0:0 and 0:1) is skipped rather than chosen and then refused.
     const VimControllerInfo* primary = nullptr;
+    std::optional<int> primaryUnit;
     int primaryDiskCount = -1;
     for (const VimControllerInfo& c : target.controllers) {
+        const auto unit = pickFreeUnit(c);
+        if (!unit) {
+            continue;
+        }
         const int count = diskCountByControllerKey.count(c.key) ? diskCountByControllerKey[c.key] : 0;
         if (count > primaryDiskCount || (count == primaryDiskCount && (primary == nullptr || c.key < primary->key))) {
             primary = &c;
+            primaryUnit = unit;
             primaryDiskCount = count;
         }
     }
-    // primary is never null here: target.controllers is non-empty (checked above) and the loop always
-    // assigns it on the first iteration.
-    const auto unit = pickFreeUnit(*primary);
-    if (!unit) {
-        return Error(ErrorCode::InvalidArgument, "target VM's primary controller (" + primary->deviceType + " bus " +
-                                                       std::to_string(primary->busNumber) +
-                                                       ") has no free unit numbers left; name a different controller "
-                                                       "by type or bus number");
+    if (primary == nullptr) {
+        return Error(ErrorCode::InvalidArgument,
+                     "none of the target VM's controllers has a free unit number left; pass "
+                     "--target-controller <type>:<bus> with --target-controller-create to add one");
     }
-    return ControllerChoice{primary->key, *unit, std::nullopt};
+    return ControllerChoice{primary->key, *primaryUnit, std::nullopt};
 }
 
 namespace {

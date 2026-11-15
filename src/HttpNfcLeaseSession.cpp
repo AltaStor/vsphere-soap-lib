@@ -518,6 +518,19 @@ Result<pugi::xml_document> createImportSpec(VimSession& session, const ImportVmS
     if (!cisReturn.child("importSpec")) {
         return Error(ErrorCode::InvalidFormat, "CreateImportSpec response missing importSpec");
     }
+    // A guest OS id the chosen hardware version doesn't know is replaced, without a warning, by
+    // "otherGuest" (confirmed live on ESXi 8.0.3: windows2019srv_64Guest at vmx-13). Refuse it rather than
+    // create a VM typed as something the caller didn't ask for (V2V-72).
+    const pugi::xml_node configSpec = cisReturn.child("importSpec").child("configSpec");
+    const std::string createdGuestId = configSpec.child("guestId").text().as_string();
+    if (!spec.guestOsType.empty() && !createdGuestId.empty() && createdGuestId != spec.guestOsType) {
+        const std::string version = configSpec.child("version").text().as_string();
+        return Error(ErrorCode::InvalidArgument,
+                     "the target does not support guest OS id '" + spec.guestOsType + "' for the VM it would create" +
+                         (version.empty() ? std::string() : " (hardware version " + version + ")") +
+                         ": it would create the VM as '" + createdGuestId +
+                         "' instead -- pass a --target-guest-os-id this host supports");
+    }
     return std::move(cisResult).value();
 }
 
