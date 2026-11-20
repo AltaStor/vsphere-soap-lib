@@ -186,9 +186,9 @@ Error runWithTimeout(asio::io_context& ioc, Stream& stream, std::chrono::seconds
     ioc.run();
 
     if (timedOut) {
-        httpLogger()->warn("{} timed out after {}s (host may be wedged)", opLabel, timeout.count());
+        httpLogger()->warn("{} timed out after {}s", opLabel, timeout.count());
         return Error(ErrorCode::IoError,
-                     "operation timed out after " + std::to_string(timeout.count()) + "s (host may be wedged)");
+                     "operation timed out after " + std::to_string(timeout.count()) + "s");
     }
     if (opEc) {
         httpLogger()->debug("{} failed after {:.1f}ms: {}", opLabel, elapsedMs(start), opEc.message());
