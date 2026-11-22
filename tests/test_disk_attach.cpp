@@ -82,6 +82,27 @@ TEST(ChooseControllerAndUnitTest, AutomaticTiesBrokenByLowestControllerKey)
     EXPECT_EQ(result.value().unitNumber, 0);
 }
 
+TEST(ChooseControllerAndUnitTest, AutomaticPrefersScsiOverSataAndIdeOnAVmWithNoDisks)
+{
+    // V2V-94: a VM with an empty IDE controller (key 200), SATA (15000) and LSI Logic SAS (1000) took the
+    // disk at IDE 0:0 because the lowest key won the tie.
+    VimVmInfo target;
+    target.controllers = {makeController(200, "VirtualIDEController", 0),
+                          makeController(15000, "VirtualAHCIController", 0),
+                          makeController(1000, "VirtualLsiLogicSASController", 0)};
+
+    auto result = chooseControllerAndUnit(target, ControllerSelector{});
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result.value().controllerKey, 1000);
+    EXPECT_EQ(result.value().unitNumber, 0);
+
+    target.controllers = {makeController(200, "VirtualIDEController", 0),
+                          makeController(15000, "VirtualAHCIController", 0)};
+    result = chooseControllerAndUnit(target, ControllerSelector{});
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result.value().controllerKey, 15000);
+}
+
 TEST(ChooseControllerAndUnitTest, AutomaticFailsWhenNoControllerExistsAndCreationNotRequested)
 {
     VimVmInfo target; // no controllers at all

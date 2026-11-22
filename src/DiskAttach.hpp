@@ -122,6 +122,10 @@ struct ControllerChoice {
 Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target,
                                                                   const ControllerSelector& selector);
 
+/// `choice` as a person reads it: "scsi0:0 (lsilogicsas)", or "scsi0:0 (a new paravirtual controller)" when the
+/// controller is still to be created.
+std::string describeControllerChoice(const VimVmInfo& target, const ControllerChoice& choice);
+
 /// The "resolve controller/unit, create a controller if needed, attach" tail shared by
 /// `attachUploadedDisk` (called after its detach/move/unregister steps) and the `folder-put` fallback
 /// transport (called directly: that path writes straight into the target VM's own folder, so there is no
