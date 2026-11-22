@@ -122,6 +122,7 @@ void parseDevices(pugi::xml_node deviceArrayVal, std::vector<VimDiskInfo>& disks
         disk.key = device.child("key").text().as_string();
         disk.controllerKey = device.child("controllerKey").text().as_int();
         disk.unitNumber = device.child("unitNumber").text().as_int();
+        disk.deviceLabel = device.child("deviceInfo").child("label").text().as_string();
 
         if (const pugi::xml_node capBytes = device.child("capacityInBytes")) {
             disk.capacityBytes = capBytes.text().as_ullong();

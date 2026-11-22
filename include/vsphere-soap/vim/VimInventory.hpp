@@ -55,6 +55,8 @@ struct VimDiskBacking {
 struct VimDiskInfo {
     std::string key; ///< e.g. "2000": VimVirtualMachine::disks()' device key, stable across calls.
     std::uint64_t capacityBytes = 0;
+    /// `deviceInfo.label`, the name the vSphere Client shows, e.g. "Hard disk 1".
+    std::string deviceLabel;
 
     /// `backing`'s concrete type, e.g. "VirtualDiskFlatVer2BackingInfo", "RawDiskMappingVer1BackingInfo"
     /// (RDM): used to reject RDM/non-file backings up front (CbtQuery::checkEligible,

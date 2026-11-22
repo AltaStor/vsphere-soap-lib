@@ -197,6 +197,17 @@ Error Detail::eagerZeroAllDisks(Detail::ClientConnection& connection, const Deta
 Error Detail::checkAttachPoint(Detail::ClientConnection& connection, const Detail::PublicVmLocator& targetVm,
                               const VSphereAttachControllerSpec& controller)
 {
+    auto resolved = Detail::resolveAttachPoint(connection, targetVm, controller);
+    if (!resolved) {
+        return std::move(resolved).error();
+    }
+    return {};
+}
+
+Result<std::string> Detail::resolveAttachPoint(Detail::ClientConnection& connection,
+                                               const Detail::PublicVmLocator& targetVm,
+                                               const VSphereAttachControllerSpec& controller)
+{
     if (Error invalid = Detail::checkVmLocator(targetVm, "VmLocator"); !invalid.ok()) {
         return invalid;
     }
@@ -223,7 +234,7 @@ Error Detail::checkAttachPoint(Detail::ClientConnection& connection, const Detai
     if (!choice) {
         return std::move(choice).error();
     }
-    return {};
+    return Detail::describeControllerChoice(vmInfo.value(), choice.value());
 }
 
 // One-shot wrappers: one login per call. See VSphereClient for running several operations on one login.
@@ -252,6 +263,13 @@ Error checkAttachPoint(const ConnectParams& params, const VmLocator& targetVm,
 {
     Detail::ClientConnection connection(params);
     return Detail::checkAttachPoint(connection, targetVm, controller);
+}
+
+Result<std::string> resolveAttachPoint(const ConnectParams& params, const VmLocator& targetVm,
+                                       const VSphereAttachControllerSpec& controller)
+{
+    Detail::ClientConnection connection(params);
+    return Detail::resolveAttachPoint(connection, targetVm, controller);
 }
 
 Error eagerZeroAllDisks(const ConnectParams& params, const VmLocator& vm)

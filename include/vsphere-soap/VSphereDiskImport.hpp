@@ -114,6 +114,11 @@ VSphereSoap::Result<bool> datastoreDiskExists(const ConnectParams& params, const
 VSphereSoap::Error checkAttachPoint(const ConnectParams& params, const VmLocator& targetVm,
                                     const VSphereAttachControllerSpec& controller);
 
+/// Same as `checkAttachPoint`, and on success says where the disk would go: "scsi0:0 (lsilogicsas)", or
+/// "scsi0:0 (a new paravirtual controller)" when `createIfMissing` would add one. A dry run shows it.
+VSphereSoap::Result<std::string> resolveAttachPoint(const ConnectParams& params, const VmLocator& targetVm,
+                                                    const VSphereAttachControllerSpec& controller);
+
 /// Forces every disk currently attached to `vm` eager-zeroed
 /// (`VirtualDiskManager.EagerZeroVirtualDisk_Task`): the same post-import fixup `attachImportedDisk`
 /// applies for a disk it moves onto an existing VM (see `DiskAttach.hpp`'s `eagerZeroVirtualDisk` doc

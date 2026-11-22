@@ -44,8 +44,9 @@ TEST(ChooseControllerUnitAroundCdromTest, SkipsUnitTakenByCdrom)
 
     auto automatic = chooseControllerAndUnit(target, ControllerSelector{});
     ASSERT_TRUE(automatic);
-    EXPECT_EQ(automatic.value().controllerKey, 200); // lowest key, unit 1 still free
-    EXPECT_EQ(automatic.value().unitNumber, 1);
+    // V2V-94: on a VM without disks SCSI wins over SATA and IDE (it used to be IDE, the lowest key).
+    EXPECT_EQ(automatic.value().controllerKey, 1000);
+    EXPECT_EQ(automatic.value().unitNumber, 0);
 }
 
 // The automatic choice passes over a controller whose every unit is taken, and fails only when all are.

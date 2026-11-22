@@ -84,7 +84,71 @@ bool isUnitUsable(std::string_view xsiType, int unit)
     return unit >= 0 && unit <= 15;
 }
 
+// Which family the automatic choice prefers when disk counts tie (a VM with no disks yet): SCSI, as the
+// vSphere Client does when a disk is added, then NVMe, SATA, and IDE last (two devices per controller,
+// shared with CD/DVD drives, no hot add).
+int autoPreferenceRank(std::string_view xsiType)
+{
+    if (isScsiFamily(xsiType)) {
+        return 0;
+    }
+    if (xsiType == "VirtualNVMEController") {
+        return 1;
+    }
+    if (xsiType == "VirtualAHCIController" || xsiType == "VirtualSATAController") {
+        return 2;
+    }
+    if (xsiType == "VirtualIDEController") {
+        return 4;
+    }
+    return 3;
+}
+
+std::string shortNameForXsiType(std::string_view xsiType)
+{
+    for (const auto& [alias, type] : kControllerTypeAliases) {
+        if (type == xsiType) {
+            return std::string(alias);
+        }
+    }
+    return std::string(xsiType);
+}
+
+// The .vmx prefix of a controller family: scsi, sata, nvme, ide.
+std::string vmxPrefixForXsiType(std::string_view xsiType)
+{
+    if (isScsiFamily(xsiType)) {
+        return "scsi";
+    }
+    if (xsiType == "VirtualAHCIController" || xsiType == "VirtualSATAController") {
+        return "sata";
+    }
+    if (xsiType == "VirtualNVMEController") {
+        return "nvme";
+    }
+    if (xsiType == "VirtualIDEController") {
+        return "ide";
+    }
+    return "controller";
+}
+
 } // namespace
+
+std::string describeControllerChoice(const VimVmInfo& target, const ControllerChoice& choice)
+{
+    if (choice.controllerToCreate) {
+        const auto& [xsiType, bus] = *choice.controllerToCreate;
+        return vmxPrefixForXsiType(xsiType) + std::to_string(bus) + ":" + std::to_string(choice.unitNumber) +
+               " (a new " + shortNameForXsiType(xsiType) + " controller)";
+    }
+    for (const VimControllerInfo& c : target.controllers) {
+        if (c.key == choice.controllerKey) {
+            return vmxPrefixForXsiType(c.deviceType) + std::to_string(c.busNumber) + ":" +
+                   std::to_string(choice.unitNumber) + " (" + shortNameForXsiType(c.deviceType) + ")";
+        }
+    }
+    return "controller key " + std::to_string(choice.controllerKey) + ", unit " + std::to_string(choice.unitNumber);
+}
 
 Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const ControllerSelector& selector)
 {
@@ -161,7 +225,8 @@ Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const 
     }
 
     // Case 3: fully automatic; default to the target's existing primary controller, defined as the type
-    // most of its existing disks are already attached to (ties broken by lowest controller key).
+    // most of its existing disks are already attached to (ties broken by family -- SCSI, NVMe, SATA,
+    // IDE -- then by lowest controller key).
     // Falls back to the lowest-key controller of any type if the VM has disks with no resolvable
     // controller (shouldn't happen for a well-formed VM), or the lowest-key controller overall if it has
     // no disks yet.
@@ -190,7 +255,12 @@ Result<ControllerChoice> chooseControllerAndUnit(const VimVmInfo& target, const 
             continue;
         }
         const int count = diskCountByControllerKey.count(c.key) ? diskCountByControllerKey[c.key] : 0;
-        if (count > primaryDiskCount || (count == primaryDiskCount && (primary == nullptr || c.key < primary->key))) {
+        const bool better =
+            primary == nullptr || count > primaryDiskCount ||
+            (count == primaryDiskCount &&
+             (autoPreferenceRank(c.deviceType) < autoPreferenceRank(primary->deviceType) ||
+              (autoPreferenceRank(c.deviceType) == autoPreferenceRank(primary->deviceType) && c.key < primary->key)));
+        if (better) {
             primary = &c;
             primaryUnit = unit;
             primaryDiskCount = count;
