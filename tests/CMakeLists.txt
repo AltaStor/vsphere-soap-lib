@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright © 2026 Norvitex OÜ
+# Copyright © 2026 Norvitex OÜ (AltaStor.com)
 #
 # Unit tests: SOAP envelopes and faults, inventory and session handling, CBT paging, the streamOptimized VMDK
 # encoder, grain framing, disk attach and import spec building. All of them run against a scripted fake HTTP

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright © 2026 Norvitex OÜ
+# Copyright © 2026 Norvitex OÜ (AltaStor.com)
 #
 # vsphere-soap-lib: export and import of virtual disk images from/to vSphere over the vSphere Web Services
 # (SOAP) API and plain HTTPS, with no VMware SDK.
