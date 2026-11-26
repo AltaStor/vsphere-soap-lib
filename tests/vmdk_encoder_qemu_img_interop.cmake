@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright © 2026 Norvitex OÜ (AltaStor.com)
+#
 # CTest script (run via `cmake -P`): validates StreamOptimizedVmdkEncoder's
 # output with a third-party reader. vmdk_encoder_writer writes a compressed
 # streamOptimized VMDK plus the raw image it should decode to; qemu-img must

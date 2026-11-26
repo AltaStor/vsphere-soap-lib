@@ -285,3 +285,15 @@ docs/design.md         how each path works and what live testing found
   on a live vCenter, the VM found by name through the `vim/` layer.
 - **Not built yet:** Windows (MinGW or MSVC) and macOS. The code has no platform-specific parts, and the build
   links Winsock and crypt32 on Windows, but neither has been compiled.
+
+## Authors and license
+
+vsphere-soap-lib is developed by [AltaStor.com](https://altastor.com), copyright © 2026 Norvitex OÜ.
+It is licensed under the [Apache License, Version 2.0](LICENSE), marked in the source files with an
+`SPDX-License-Identifier: Apache-2.0` line.
+A redistribution keeps the attribution in [NOTICE](NOTICE), which `cmake --install` places next to LICENSE in
+`share/doc/vsphere-soap-lib`.
+
+The dependencies keep their own licenses: Boost under the Boost Software License 1.0, pugixml under MIT, zlib under
+the zlib license and OpenSSL 3 under Apache 2.0.
+GoogleTest, under BSD-3-Clause, is used by the tests only and is not linked into the library.

@@ -248,6 +248,8 @@ if(VSPHERE_SOAP_INSTALL)
         else()
             install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} PATTERN disk EXCLUDE)
         endif()
+        # A path of its own, since from a tool the default DOCDIR is named after the tool's project
+        install(FILES LICENSE NOTICE DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/vsphere-soap-lib)
         install(EXPORT VSphereSoapTargets
             NAMESPACE VSphereSoap::
             DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/VSphereSoap
