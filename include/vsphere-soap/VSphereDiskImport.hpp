@@ -103,6 +103,17 @@ VSphereSoap::Result<std::string> releaseImportedDisk(const ConnectParams& params
 /// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
 VSphereSoap::Result<bool> datastoreDiskExists(const ConnectParams& params, const std::string& datastorePath);
 
+/// Checks, without changing anything, that a disk can be attached to `targetVm` as `controller` asks: the
+/// controller type is known, the VM has a matching controller (or `createIfMissing` is set), and that
+/// controller has a free unit, counting every device on it (CD/DVD drives included).
+/// The same choice `attachImportedDisk`/`finishFolderPutImport` make at the end, so an import can refuse an
+/// unusable attach point before the upload instead of after it.
+/// Fails with `ErrorCode::InvalidArgument` and the reason when no attach point can be resolved.
+///
+/// One login per call; see VSphereClient (VSphereClient.hpp) to run several calls on one login.
+VSphereSoap::Error checkAttachPoint(const ConnectParams& params, const VmLocator& targetVm,
+                                    const VSphereAttachControllerSpec& controller);
+
 /// Forces every disk currently attached to `vm` eager-zeroed
 /// (`VirtualDiskManager.EagerZeroVirtualDisk_Task`): the same post-import fixup `attachImportedDisk`
 /// applies for a disk it moves onto an existing VM (see `DiskAttach.hpp`'s `eagerZeroVirtualDisk` doc

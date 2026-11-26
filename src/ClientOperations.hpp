@@ -48,6 +48,8 @@ Result<std::string> releaseImportedDisk(ClientConnection& connection, const std:
                                         const std::string& datastorePath, const std::string& diskProvisioning);
 Result<bool> datastoreDiskExists(ClientConnection& connection, const std::string& datastorePath);
 Error eagerZeroAllDisks(ClientConnection& connection, const PublicVmLocator& vm);
+Error checkAttachPoint(ClientConnection& connection, const PublicVmLocator& targetVm,
+                       const VSphereAttachControllerSpec& controller);
 
 // VSphereFolderPutImport.cpp
 Result<VSphereFolderPutPrepResult> prepareFolderPutImport(ClientConnection& connection,

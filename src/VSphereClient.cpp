@@ -87,6 +87,11 @@ Result<bool> VSphereClient::datastoreDiskExists(const std::string& datastorePath
     return Detail::datastoreDiskExists(m_impl->m_connection, datastorePath);
 }
 
+Error VSphereClient::checkAttachPoint(const VmLocator& targetVm, const VSphereAttachControllerSpec& controller)
+{
+    return Detail::checkAttachPoint(m_impl->m_connection, targetVm, controller);
+}
+
 Error VSphereClient::eagerZeroAllDisks(const VmLocator& vm)
 {
     return Detail::eagerZeroAllDisks(m_impl->m_connection, vm);

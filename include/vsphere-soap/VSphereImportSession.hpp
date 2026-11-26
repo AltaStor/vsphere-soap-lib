@@ -70,11 +70,14 @@ struct VSphereImportVmSpec {
     /// Empty (the default) produces a VM with no network adapters, matching every caller of this struct
     /// before this field existed.
     std::vector<VSphereImportNetworkAdapterSpec> networkAdapters;
-    /// A vSphere `VirtualSystemSettingData.VirtualSystemType` value (e.g. "vmx-19"); empty lets
+    /// A vSphere `VirtualSystemSettingData.VirtualSystemType` value (e.g. "vmx-19"), or a space-separated
+    /// list of them ("vmx-13 vmx-21"), of which the target creates the newest it supports; empty lets
     /// the target choose its own default.
     std::string hardwareVersion;
     /// VMware's own guest-id enum (e.g. "otherGuest64", "ubuntu64Guest"): distinct from
     /// `VmwareVmCreateSpec::guestOs`'s REST-API enum, even though both mean the same thing conceptually.
+    /// Validation and import fail when the target would replace it (with "otherGuest") because the
+    /// hardware version it creates doesn't know it.
     std::string guestOsType = "otherGuest64";
     /// Managed-object-reference *values* (e.g. "resgroup-21", "group-v3"): vSphere's REST and SOAP APIs
     /// share one underlying object-id space, so ids from either work here.

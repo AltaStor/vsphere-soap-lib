@@ -172,9 +172,17 @@ void parseDevices(pugi::xml_node deviceArrayVal, std::vector<VimDiskInfo>& disks
         controller.key = device.child("key").text().as_int();
         controller.deviceType = xsiType.as_string();
         controller.busNumber = device.child("busNumber").text().as_int();
-        for (const VimDiskInfo& disk : disks) {
-            if (disk.controllerKey == controller.key) {
-                controller.usedUnitNumbers.push_back(disk.unitNumber);
+        // Every device on the controller occupies its unit, not only disks: a CD/DVD drive at SATA 0:0
+        // or IDE 0:0 makes ESXi refuse a disk at that unit ("Invalid configuration for device '0'").
+        for (pugi::xml_node other = deviceArrayVal.first_child(); other; other = other.next_sibling()) {
+            const pugi::xml_node otherController = other.child("controllerKey");
+            const pugi::xml_node otherUnit = other.child("unitNumber");
+            if (otherController && otherUnit && otherController.text().as_int() == controller.key) {
+                const int unit = otherUnit.text().as_int();
+                if (std::find(controller.usedUnitNumbers.begin(), controller.usedUnitNumbers.end(), unit) ==
+                    controller.usedUnitNumbers.end()) {
+                    controller.usedUnitNumbers.push_back(unit);
+                }
             }
         }
         controllers.push_back(std::move(controller));
